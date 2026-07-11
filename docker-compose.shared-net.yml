@@ -1,0 +1,18 @@
+# Optional override that attaches this stack's api service to a
+# pre-created external network so the gateway repo's deploy webhook (or a
+# developer testing cross-repo locally) can reach `cp-api` by service name.
+#
+# Usage:
+#   docker network create portfolio-dev   # once
+#   docker compose -f docker-compose.yml -f docker-compose.shared-net.yml up -d
+name: dev-agent-control-plane
+
+services:
+  api:
+    networks:
+      - default
+      - portfolio-dev
+
+networks:
+  portfolio-dev:
+    external: true

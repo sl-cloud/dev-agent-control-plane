@@ -1,0 +1,65 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (e.g. sha-<40-hex>). Used for rollback.'
+        required: true
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve image tag
+        id: image
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.STAGING_HOST }}
+          port: ${{ vars.STAGING_PORT || 22 }}
+          username: ${{ vars.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd ~/dev-agent-control-plane
+            git fetch origin main
+            git reset --hard ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+            sed -i '/^IMAGE_TAG=/d' .env
+            echo "IMAGE_TAG=${{ steps.image.outputs.tag }}" >> .env
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm migrate
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --wait api worker db proxy
+
+      - name: Health verify
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS "${{ vars.STAGING_BASE_URL }}/health/ready"; then
+              echo "healthy"
+              exit 0
+            fi
+            echo "not ready yet, retrying in 6s ($i/10)"
+            sleep 6
+          done
+          echo "::error::staging never became healthy after deploy"
+          exit 1

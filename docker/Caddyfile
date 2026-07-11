@@ -1,0 +1,17 @@
+:80 {
+	# Reverse-proxy API and health routes to the internal cp-api service.
+	handle /api/* {
+		reverse_proxy cp-api:3000
+	}
+	handle /health/* {
+		reverse_proxy cp-api:3000
+	}
+
+	# Everything else: serve the built dashboard SPA, falling back to
+	# index.html for client-side routing (react-router).
+	handle {
+		root * /srv/dashboard
+		try_files {path} /index.html
+		file_server
+	}
+}

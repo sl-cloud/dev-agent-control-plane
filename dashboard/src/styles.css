@@ -1,0 +1,103 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #8884;
+}
+
+.nav-brand {
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.nav a {
+  text-decoration: none;
+  opacity: 0.7;
+}
+
+.nav a.active {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.muted {
+  opacity: 0.6;
+}
+
+.error {
+  color: #c0392b;
+}
+
+.project-list {
+  list-style: none;
+  padding: 0;
+}
+
+.project-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #8882;
+}
+
+.filters {
+  margin-bottom: 1rem;
+}
+
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.runs-table th,
+.runs-table td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid #8882;
+}
+
+.status {
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+.status-succeeded {
+  background: #2ecc7133;
+}
+
+.status-failed {
+  background: #e74c3c33;
+}
+
+.status-running {
+  background: #3498db33;
+}
+
+.status-queued {
+  background: #95a5a633;
+}
+
+.status-cancelled {
+  background: #f39c1233;
+}

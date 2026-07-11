@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+migrations
+pnpm-lock.yaml
+package-lock.json
+dashboard/dist
+dashboard/node_modules

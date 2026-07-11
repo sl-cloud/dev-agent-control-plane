@@ -1,0 +1,50 @@
+# Staging overlay: image-tag based, no bind mounts, no dev tooling.
+# api/worker are internal-only on the compose network; only `proxy`
+# publishes a port. Deployed via:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --wait
+name: dev-agent-control-plane
+
+services:
+  api:
+    build: !reset null
+    image: ghcr.io/sl-cloud/dev-agent-control-plane:${IMAGE_TAG:-staging}
+    command: ['node', 'dist/entrypoints/api.js']
+    volumes: !reset []
+    ports: !reset []
+    restart: unless-stopped
+
+  worker:
+    build: !reset null
+    image: ghcr.io/sl-cloud/dev-agent-control-plane:${IMAGE_TAG:-staging}
+    command: ['node', 'dist/entrypoints/worker.js']
+    volumes: !reset []
+    restart: unless-stopped
+
+  migrate:
+    image: ghcr.io/sl-cloud/dev-agent-control-plane:${IMAGE_TAG:-staging}
+    command: sh -c "node dist/db/migrate.js && node dist/db/seed.js"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    restart: unless-stopped
+    ports: !reset []
+
+  proxy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.proxy
+    image: ghcr.io/sl-cloud/dev-agent-control-plane-proxy:${IMAGE_TAG:-staging}
+    container_name: cp-proxy
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${PROXY_HOST_PORT:-8080}:80'
+    restart: unless-stopped
+
+volumes:
+  cp-db-data:

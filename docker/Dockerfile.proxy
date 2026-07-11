@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+#
+# Builds the dashboard SPA, then copies the static output and a Caddyfile
+# into a caddy:2-alpine runtime image. Staging-only: in dev the SPA runs via
+# `npm run dev` (Vite's own server) outside compose.
+
+FROM node:20-alpine AS dashboard-build
+WORKDIR /app/dashboard
+COPY dashboard/package.json dashboard/package-lock.json* ./
+RUN npm install -g npm@11 && npm ci
+COPY dashboard/ .
+RUN npm run build
+
+FROM caddy:2-alpine AS runtime
+COPY docker/Caddyfile /etc/caddy/Caddyfile
+COPY --from=dashboard-build /app/dashboard/dist /srv/dashboard
+
+EXPOSE 80
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=5 \
+  CMD wget -q -O- http://127.0.0.1:80/health/live || exit 1
