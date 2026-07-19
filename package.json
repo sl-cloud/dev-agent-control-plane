@@ -26,6 +26,7 @@
     "seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.1.0",
     "close-with-grace": "^2.1.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.1.0",

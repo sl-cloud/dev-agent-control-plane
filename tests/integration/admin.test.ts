@@ -53,6 +53,17 @@ describe('admin routes bearer auth', () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it('rejects a same-length wrong token (exercises the timingSafeEqual path, not just the length guard)', async () => {
+    const runId = await createRun('failed');
+    const wrongSameLength = ADMIN_TOKEN.slice(0, -1) + (ADMIN_TOKEN.endsWith('x') ? 'y' : 'x');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/runs/${runId}/retry`,
+      headers: { authorization: `Bearer ${wrongSameLength}` },
+    });
+    expect(res.statusCode).toBe(401);
+  });
 });
 
 describe('POST /api/v1/admin/runs/:id/retry', () => {

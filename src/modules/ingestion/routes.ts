@@ -30,8 +30,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+// Generous enough for legitimate CI/deploy traffic (a handful of deploys
+// per minute at most) while still bounding the cost of unauthenticated
+// signature-guessing and unknown-project probing, each of which costs a DB
+// round-trip before being rejected.
+const WEBHOOK_RATE_LIMIT = { max: 60, timeWindow: '1 minute' };
+
 export async function ingestionRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/github-ci', async (request, reply) => {
+  app.post('/github-ci', { config: { rateLimit: WEBHOOK_RATE_LIMIT } }, async (request, reply) => {
     const body = request.body;
     if (!isRecord(body) || typeof body.project !== 'string') {
       return reply.status(400).send({ error: 'invalid payload: missing project' });
@@ -97,53 +103,57 @@ export async function ingestionRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ runId: run.id });
   });
 
-  app.post('/error-report', async (request, reply) => {
-    const body = request.body;
-    if (!isRecord(body) || typeof body.project !== 'string') {
-      return reply.status(400).send({ error: 'invalid payload: missing project' });
-    }
-    const payload = body as unknown as ErrorReportedBody;
+  app.post(
+    '/error-report',
+    { config: { rateLimit: WEBHOOK_RATE_LIMIT } },
+    async (request, reply) => {
+      const body = request.body;
+      if (!isRecord(body) || typeof body.project !== 'string') {
+        return reply.status(400).send({ error: 'invalid payload: missing project' });
+      }
+      const payload = body as unknown as ErrorReportedBody;
 
-    const deliveryId = firstHeader(request.headers['x-portfolio-delivery']);
-    if (!deliveryId) {
-      return reply.status(400).send({ error: 'missing X-Portfolio-Delivery header' });
-    }
+      const deliveryId = firstHeader(request.headers['x-portfolio-delivery']);
+      if (!deliveryId) {
+        return reply.status(400).send({ error: 'missing X-Portfolio-Delivery header' });
+      }
 
-    const resolved = await resolveProject(app.db, payload.project);
-    const rawBody = request.rawBody ?? Buffer.from(JSON.stringify(body));
+      const resolved = await resolveProject(app.db, payload.project);
+      const rawBody = request.rawBody ?? Buffer.from(JSON.stringify(body));
 
-    const signatureValid = verifyRequestSignature({
-      secret: resolved?.secret,
-      rawBody,
-      timestampHeader: request.headers['x-portfolio-timestamp'],
-      signatureHeader: request.headers['x-portfolio-signature'],
-    });
+      const signatureValid = verifyRequestSignature({
+        secret: resolved?.secret,
+        rawBody,
+        timestampHeader: request.headers['x-portfolio-timestamp'],
+        signatureHeader: request.headers['x-portfolio-signature'],
+      });
 
-    if (!resolved || !signatureValid) {
-      return reply.status(401).send({ error: 'invalid signature' });
-    }
+      if (!resolved || !signatureValid) {
+        return reply.status(401).send({ error: 'invalid signature' });
+      }
 
-    const delivery = await recordDelivery(app.db, {
-      projectId: resolved.project.id,
-      deliveryId,
-      eventType: 'error.reported',
-      signatureValid: true,
-      payload: body,
-    });
+      const delivery = await recordDelivery(app.db, {
+        projectId: resolved.project.id,
+        deliveryId,
+        eventType: 'error.reported',
+        signatureValid: true,
+        payload: body,
+      });
 
-    if (delivery.outcome === 'duplicate') {
-      return reply.status(200).send({ status: 'duplicate' });
-    }
+      if (delivery.outcome === 'duplicate') {
+        return reply.status(200).send({ status: 'duplicate' });
+      }
 
-    // Error path just persists for now: no run, no workflow triggered.
-    await app.db.insert(errorEventsTable).values({
-      projectId: resolved.project.id,
-      deliveryId,
-      payload: body,
-    });
+      // Error path just persists for now: no run, no workflow triggered.
+      await app.db.insert(errorEventsTable).values({
+        projectId: resolved.project.id,
+        deliveryId,
+        payload: body,
+      });
 
-    return reply.status(201).send({ status: 'recorded' });
-  });
+      return reply.status(201).send({ status: 'recorded' });
+    },
+  );
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

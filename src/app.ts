@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
 import type { AppConfig } from './config/index.js';
 import { buildLoggerOptions } from './lib/logger.js';
 import { generateRequestId } from './lib/request-id.js';
@@ -26,6 +27,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     logger: buildLoggerOptions(config),
     genReqId: (req) => (req.headers['x-request-id'] as string | undefined) ?? generateRequestId(),
     requestIdHeader: 'x-request-id',
+    // Behind Caddy (staging) and, in front of that, the host's own reverse
+    // proxy: trust X-Forwarded-For so rate-limit buckets are keyed by the
+    // real client IP, not the proxy's.
+    trustProxy: true,
   });
 
   const dbPool = options.dbPool ?? createDbPool(config);
@@ -58,6 +63,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   await app.register(errorHandlerPlugin);
+  await app.register(rateLimit, { global: false });
   await app.register(healthRoutes);
   await app.register(ingestionRoutes, { prefix: '/api/v1/webhooks' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
