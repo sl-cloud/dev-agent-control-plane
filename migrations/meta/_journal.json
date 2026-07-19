@@ -15,6 +15,20 @@
       "when": 1784457600000,
       "tag": "0001_accepted_generated_tests",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784465836372,
+      "tag": "0002_projects_last_successful_commit_sha",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784466316393,
+      "tag": "0003_projects_repository_url",
+      "breakpoints": true
     }
   ]
 }

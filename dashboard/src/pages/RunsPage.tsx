@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Nav } from '../Nav.js';
+import { CommitLink } from '../CommitLink.js';
 import { fetchRuns, type RunSummary } from '../api/client.js';
 
 export function RunsPage() {
@@ -65,7 +66,9 @@ export function RunsPage() {
                   <span className={`status status-${run.status}`}>{run.status}</span>
                 </td>
                 <td>{run.branch ?? '-'}</td>
-                <td>{run.commitSha ? run.commitSha.slice(0, 7) : '-'}</td>
+                <td>
+                  <CommitLink repositoryUrl={run.repositoryUrl} commitSha={run.commitSha} />
+                </td>
                 <td>{new Date(run.createdAt).toLocaleString()}</td>
               </tr>
             ))}

@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/index.js';
-import { acceptedGeneratedTestsTable, webhookEventsTable, type AgentRun } from '../../db/schema.js';
+import {
+  acceptedGeneratedTestsTable,
+  projectsTable,
+  webhookEventsTable,
+  type AgentRun,
+} from '../../db/schema.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_BYTES = 80_000;
@@ -230,6 +235,37 @@ async function extractGitContext(params: {
   }
 }
 
+export async function isAncestorCommit(
+  repositoryUrl: string,
+  ancestorSha: string,
+  descendantSha: string,
+): Promise<boolean> {
+  if (ancestorSha === descendantSha) {
+    return true;
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'cp-scm-anc-'));
+  try {
+    await git(dir, ['init', '--quiet']);
+    await git(dir, ['remote', 'add', 'origin', repositoryUrl]);
+    // Full (non-shallow) fetch of the descendant's history: ancestry can only
+    // be checked against commits that are actually present locally, and a
+    // shallow fetch of each SHA independently would leave them disconnected.
+    await git(dir, ['fetch', 'origin', descendantSha], 120_000);
+    try {
+      await execFileAsync('git', ['merge-base', '--is-ancestor', ancestorSha, descendantSha], {
+        cwd: dir,
+        timeout: 30_000,
+        env: { PATH: process.env.PATH },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceContext> {
   const event = await db.query.webhookEventsTable.findFirst({
     where: and(
@@ -240,7 +276,15 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
   const payload = parseDeploymentPayload(event?.payload);
   const repositoryUrl = normaliseRepositoryUrl(payload.repository);
   const commitSha = payload.commitSha ?? run.commitSha ?? '';
-  const baseSha = payload.baseSha || null;
+  const project = await db.query.projectsTable.findFirst({
+    where: eq(projectsTable.id, run.projectId),
+  });
+  // Prefer the last commit this project's analysis actually completed
+  // against over the deploy workflow's HEAD~1 guess, which is wrong
+  // whenever deploys are batched, skipped, rolled back, or a merge commit
+  // lands. Fall back to the webhook-supplied baseSha only when no prior
+  // successful run has recorded one yet (first-ever run for the project).
+  const baseSha = project?.lastSuccessfulCommitSha || payload.baseSha || null;
 
   const gitContext =
     repositoryUrl && commitSha

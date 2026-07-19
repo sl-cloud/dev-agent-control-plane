@@ -19,11 +19,16 @@ export interface RunSummary {
   status: AgentRun['status'];
   commitSha: string | null;
   branch: string | null;
+  repositoryUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export function toRunSummary(run: AgentRun, projectSlug: string): RunSummary {
+export function toRunSummary(
+  run: AgentRun,
+  projectSlug: string,
+  repositoryUrl: string | null,
+): RunSummary {
   return {
     id: run.id,
     projectSlug,
@@ -31,6 +36,7 @@ export function toRunSummary(run: AgentRun, projectSlug: string): RunSummary {
     status: run.status,
     commitSha: run.commitSha,
     branch: run.branch,
+    repositoryUrl,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   };
@@ -84,11 +90,12 @@ export function toAiOperationSummary(operation: AiOperation): AiOperationSummary
 export function toRunDetail(params: {
   run: AgentRun;
   projectSlug: string;
+  repositoryUrl: string | null;
   steps: WorkflowStep[];
   aiOperations: AiOperation[];
 }): RunDetail {
   return {
-    ...toRunSummary(params.run, params.projectSlug),
+    ...toRunSummary(params.run, params.projectSlug, params.repositoryUrl),
     steps: params.steps.map(toWorkflowStepSummary),
     aiOperations: params.aiOperations.map(toAiOperationSummary),
   };

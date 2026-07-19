@@ -44,7 +44,13 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
       orderBy: [asc(aiOperationsTable.createdAt)],
     });
 
-    return toRunDetail({ run, projectSlug: project.slug, steps, aiOperations });
+    return toRunDetail({
+      run,
+      projectSlug: project.slug,
+      repositoryUrl: project.repositoryUrl,
+      steps,
+      aiOperations,
+    });
   });
 
   app.get('/runs', async (request, reply) => {
@@ -85,7 +91,10 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
     const visibleRuns = runs.filter((run) => publicProjectIds.has(run.projectId));
 
     return {
-      runs: visibleRuns.map((run) => toRunSummary(run, projectById.get(run.projectId)!.slug)),
+      runs: visibleRuns.map((run) => {
+        const project = projectById.get(run.projectId)!;
+        return toRunSummary(run, project.slug, project.repositoryUrl);
+      }),
       page,
       pageSize: PAGE_SIZE,
     };

@@ -15,6 +15,7 @@ export interface RunSummary {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   commitSha: string | null;
   branch: string | null;
+  repositoryUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,6 +51,13 @@ export interface RunsResponse {
   runs: RunSummary[];
   page: number;
   pageSize: number;
+}
+
+export function commitUrl(repositoryUrl: string | null, commitSha: string | null): string | null {
+  if (!repositoryUrl || !commitSha) {
+    return null;
+  }
+  return `${repositoryUrl.replace(/\.git$/, '')}/commit/${commitSha}`;
 }
 
 async function getJson<T>(path: string): Promise<T> {

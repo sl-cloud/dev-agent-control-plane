@@ -33,13 +33,14 @@ let pool: DbPool;
 let db: Db;
 let projectId: string;
 
-async function createRun(workflowName: string): Promise<string> {
+async function createRun(workflowName: string, commitSha?: string): Promise<string> {
   const [run] = await db
     .insert(agentRunsTable)
     .values({
       projectId,
       workflowName,
       triggerDeliveryId: crypto.randomUUID(),
+      commitSha,
     })
     .returning();
   return run!.id;
@@ -247,7 +248,7 @@ describe('change-analysis workflow', () => {
         results: [{ title: 'generated smoke test', status: 'passed' }],
       }),
     });
-    const runId = await createRun('change-analysis');
+    const runId = await createRun('change-analysis', 'commit-a-sha');
 
     await executeRun(db, runId);
 
@@ -267,7 +268,9 @@ describe('change-analysis workflow', () => {
       'executeTests',
       'repairTests',
       'finaliseReport',
+      'rerunAcceptedTests',
       'persistAcceptedTests',
+      'recordDeploymentBase',
     ]);
 
     const plan = steps.find((step) => step.stepName === 'planTests')?.output as {
@@ -295,10 +298,17 @@ describe('change-analysis workflow', () => {
       failedCount: 0,
       repaired: false,
     });
+    expect(steps.find((step) => step.stepName === 'rerunAcceptedTests')?.output).toEqual({
+      reruns: [],
+    });
     expect(steps.find((step) => step.stepName === 'persistAcceptedTests')?.output).toMatchObject({
       persisted: true,
       source: 'original',
       passedCount: 1,
+    });
+    expect(steps.find((step) => step.stepName === 'recordDeploymentBase')?.output).toEqual({
+      updated: true,
+      commitSha: 'commit-a-sha',
     });
 
     const operations = await db.query.aiOperationsTable.findMany({
@@ -315,6 +325,59 @@ describe('change-analysis workflow', () => {
     });
     expect(accepted).toHaveLength(1);
     expect(accepted[0]?.specSource).toBe(generated.specSource);
+
+    const project = await db.query.projectsTable.findFirst({
+      where: eq(projectsTable.id, projectId),
+    });
+    expect(project?.lastSuccessfulCommitSha).toBe('commit-a-sha');
+    expect(project?.repositoryUrl).toBe('https://github.com/sl-cloud/api-test-gateway.git');
+  });
+
+  it('reruns previously accepted specs on a later run for the same project', async () => {
+    const sourceContext = sourceContextFixture();
+    const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+    const passingExecution = {
+      passed: true,
+      failed: false,
+      duration: 42,
+      results: [{ title: 'generated smoke test', status: 'passed' as const }],
+    };
+
+    registerChangeAnalysisWorkflow(config, {
+      sourceContextBuilder: async () => sourceContext,
+      aiGenerator: createFakeGenerator(config),
+      testExecutor: async () => passingExecution,
+    });
+
+    const firstRunId = await createRun('change-analysis', 'commit-b-sha');
+    await executeRun(db, firstRunId);
+    const firstAccepted = await db.query.acceptedGeneratedTestsTable.findFirst({
+      where: eq(acceptedGeneratedTestsTable.runId, firstRunId),
+    });
+    expect(firstAccepted).toBeDefined();
+
+    const secondRunId = await createRun('change-analysis', 'commit-c-sha');
+    await executeRun(db, secondRunId);
+
+    const secondSteps = await db.query.workflowStepsTable.findMany({
+      where: eq(workflowStepsTable.runId, secondRunId),
+    });
+    const rerunOutput = secondSteps.find((step) => step.stepName === 'rerunAcceptedTests')
+      ?.output as { reruns: Array<{ acceptedTestId: string; passed: boolean }> };
+    expect(rerunOutput.reruns.length).toBeGreaterThanOrEqual(1);
+    expect(rerunOutput.reruns).toContainEqual(
+      expect.objectContaining({ acceptedTestId: firstAccepted!.id, passed: true }),
+    );
+
+    // repositoryUrl was already backfilled by an earlier test in this shared
+    // project; a run with a different repositoryUrl in its source context
+    // must not overwrite it once set.
+    const projectAfterFirstRun = await db.query.projectsTable.findFirst({
+      where: eq(projectsTable.id, projectId),
+    });
+    expect(projectAfterFirstRun?.repositoryUrl).toBe(
+      'https://github.com/sl-cloud/api-test-gateway.git',
+    );
   });
 
   it('repairs a generated-test failure and persists the repaired passing spec', async () => {
@@ -516,6 +579,10 @@ describe('change-analysis workflow', () => {
       persisted: false,
     });
     expect(repairCalls).toBe(5);
-    expect(executions).toHaveLength(6);
+    // executions also includes calls the rerunAcceptedTests step makes against
+    // unrelated specs accepted by earlier tests sharing this project; filter
+    // to this test's own spec content (original attempt + 5 repairs).
+    const ownExecutions = executions.filter((specSource) => specSource.includes('still failing'));
+    expect(ownExecutions).toHaveLength(6);
   });
 });

@@ -1,10 +1,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { AppConfig } from '../../config/index.js';
 import type { Db } from '../../db/index.js';
-import { acceptedGeneratedTestsTable, workflowStepsTable } from '../../db/schema.js';
+import { acceptedGeneratedTestsTable, projectsTable, workflowStepsTable } from '../../db/schema.js';
 import type { WorkflowStepContext } from '../runs/workflow-runner.js';
 import { defineWorkflow } from '../runs/workflow-runner.js';
-import { buildSourceContext, type SourceContext } from '../scm/source-context.js';
+import { buildSourceContext, isAncestorCommit, type SourceContext } from '../scm/source-context.js';
 import { createAiGenerator, type AiGenerator } from '../ai/generator.js';
 import { recordAiOperation } from '../ai/ledger.js';
 import {
@@ -195,6 +195,30 @@ export function registerChangeAnalysisWorkflow(
       },
     },
     {
+      name: 'rerunAcceptedTests',
+      run: async (ctx) => {
+        const previouslyAccepted = await ctx.db.query.acceptedGeneratedTestsTable.findMany({
+          where: eq(acceptedGeneratedTestsTable.projectId, ctx.run.projectId),
+          orderBy: [desc(acceptedGeneratedTestsTable.createdAt)],
+        });
+        const reruns = [];
+        for (const test of previouslyAccepted) {
+          const execution = await testExecutor(test.specSource);
+          const report = finaliseExecutionReport(execution);
+          reruns.push({
+            acceptedTestId: test.id,
+            commitSha: test.commitSha,
+            branch: test.branch,
+            passed: report.passed,
+            passedCount: report.passedCount,
+            failedCount: report.failedCount,
+            results: report.results,
+          });
+        }
+        return { reruns };
+      },
+    },
+    {
       name: 'persistAcceptedTests',
       run: async (ctx) => {
         const report = await loadStepOutput<ExecutionReport>(ctx.db, ctx.run.id, 'finaliseReport');
@@ -227,6 +251,57 @@ export function registerChangeAnalysisWorkflow(
           passedCount: report.passedCount,
           duration: report.duration,
         };
+      },
+    },
+    {
+      name: 'recordDeploymentBase',
+      run: async (ctx) => {
+        if (!ctx.run.commitSha) {
+          return { updated: false, reason: 'run has no commitSha' };
+        }
+
+        const project = await ctx.db.query.projectsTable.findFirst({
+          where: eq(projectsTable.id, ctx.run.projectId),
+        });
+        let repositoryUrl: string | null = project?.repositoryUrl ?? null;
+        if (!repositoryUrl) {
+          const sourceContext = await loadStepOutput<SourceContext>(
+            ctx.db,
+            ctx.run.id,
+            'fetchSource',
+          );
+          repositoryUrl = sourceContext.repositoryUrl;
+        }
+
+        const currentBase = project?.lastSuccessfulCommitSha ?? null;
+        if (currentBase && repositoryUrl) {
+          const isDescendant = await isAncestorCommit(
+            repositoryUrl,
+            currentBase,
+            ctx.run.commitSha,
+          );
+          if (!isDescendant) {
+            // This run's commit isn't ahead of the recorded base (an older
+            // or diverged commit rerun after a newer one already advanced
+            // the base) - advancing lastSuccessfulCommitSha here would make
+            // the *next* run diff against the wrong side of history.
+            return {
+              updated: false,
+              reason: 'commit is not a descendant of the current base',
+              commitSha: ctx.run.commitSha,
+              currentBase,
+            };
+          }
+        }
+
+        await ctx.db
+          .update(projectsTable)
+          .set({
+            lastSuccessfulCommitSha: ctx.run.commitSha,
+            ...(repositoryUrl ? { repositoryUrl } : {}),
+          })
+          .where(eq(projectsTable.id, ctx.run.projectId));
+        return { updated: true, commitSha: ctx.run.commitSha };
       },
     },
   ]);

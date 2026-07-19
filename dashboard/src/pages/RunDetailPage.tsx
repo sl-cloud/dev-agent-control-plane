@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { CommitLink } from '../CommitLink.js';
 import { Nav } from '../Nav.js';
 import { fetchRun, type RunDetail, type WorkflowStepSummary } from '../api/client.js';
 
@@ -70,7 +71,7 @@ function StepTimeline({ steps }: { steps: WorkflowStepSummary[] }) {
   );
 }
 
-function SummaryGrid({ items }: { items: Array<{ label: string; value: string }> }) {
+function SummaryGrid({ items }: { items: Array<{ label: string; value: ReactNode }> }) {
   return (
     <dl className="summary-grid">
       {items.map((item) => (
@@ -159,19 +160,33 @@ function TestPlanReport({ plan }: { plan: unknown }) {
   );
 }
 
-function SourceContextReport({ source }: { source: unknown }) {
+function SourceContextReport({
+  source,
+  repositoryUrl,
+}: {
+  source: unknown;
+  repositoryUrl: string | null;
+}) {
   const output = isRecord(source) ? source : {};
   const changedFiles = strings(output.changedFiles);
   const contractFiles = records(output.contractFiles);
   const existingGeneratedTests = records(output.existingGeneratedTests);
+  const commitSha = typeof output.commitSha === 'string' ? output.commitSha : null;
+  const baseSha = typeof output.baseSha === 'string' ? output.baseSha : null;
   return (
     <>
       <SummaryGrid
         items={[
           { label: 'Repository', value: text(output.repository) },
           { label: 'Branch', value: text(output.branch) },
-          { label: 'Commit', value: text(output.commitSha) },
-          { label: 'Base', value: text(output.baseSha) },
+          {
+            label: 'Commit',
+            value: <CommitLink repositoryUrl={repositoryUrl} commitSha={commitSha} />,
+          },
+          {
+            label: 'Base',
+            value: <CommitLink repositoryUrl={repositoryUrl} commitSha={baseSha} />,
+          },
           { label: 'Changed Files', value: String(changedFiles.length) },
           { label: 'Contract Files', value: String(contractFiles.length) },
           { label: 'Accepted Prior Suites', value: String(existingGeneratedTests.length) },
@@ -198,6 +213,36 @@ function SourceContextReport({ source }: { source: unknown }) {
         </>
       )}
     </>
+  );
+}
+
+function RegressionRerunsReport({ reruns }: { reruns: Record<string, unknown>[] }) {
+  if (reruns.length === 0) {
+    return <p className="muted">No previously accepted tests to rerun.</p>;
+  }
+  return (
+    <table className="runs-table">
+      <thead>
+        <tr>
+          <th>Commit</th>
+          <th>Branch</th>
+          <th>Result</th>
+          <th>Passed</th>
+          <th>Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {reruns.map((rerun, index) => (
+          <tr key={`${text(rerun.acceptedTestId, 'rerun')}-${index}`}>
+            <td>{text(rerun.commitSha).slice(0, 8)}</td>
+            <td>{text(rerun.branch)}</td>
+            <td className={rerun.passed ? '' : 'error'}>{rerun.passed ? 'Passed' : 'Failed'}</td>
+            <td>{numberText(rerun.passedCount)}</td>
+            <td>{numberText(rerun.failedCount)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -234,6 +279,10 @@ export function RunDetailPage() {
     () => outputRecord(run ? findStep(run, 'persistAcceptedTests') : undefined),
     [run],
   );
+  const reruns = useMemo(
+    () => records(outputRecord(run ? findStep(run, 'rerunAcceptedTests') : undefined)?.reruns),
+    [run],
+  );
 
   return (
     <div className="page">
@@ -247,7 +296,14 @@ export function RunDetailPage() {
         <>
           <div className="detail-header">
             <div>
-              <h1>Run {run.commitSha ? run.commitSha.slice(0, 7) : run.id.slice(0, 8)}</h1>
+              <h1>
+                Run{' '}
+                {run.commitSha ? (
+                  <CommitLink repositoryUrl={run.repositoryUrl} commitSha={run.commitSha} />
+                ) : (
+                  run.id.slice(0, 8)
+                )}
+              </h1>
               <p className="muted">
                 {run.projectSlug} / {run.workflowName} / {run.branch ?? '-'}
               </p>
@@ -418,7 +474,7 @@ export function RunDetailPage() {
             <h2>Source Context</h2>
             {source ? (
               <>
-                <SourceContextReport source={source} />
+                <SourceContextReport source={source} repositoryUrl={run.repositoryUrl} />
                 <RawJsonDetails value={source} />
               </>
             ) : (
@@ -450,6 +506,11 @@ export function RunDetailPage() {
             ) : (
               <p className="muted">No accepted-test persistence result recorded.</p>
             )}
+          </section>
+
+          <section className="panel">
+            <h2>Regression Reruns</h2>
+            <RegressionRerunsReport reruns={reruns} />
           </section>
 
           <section className="panel">

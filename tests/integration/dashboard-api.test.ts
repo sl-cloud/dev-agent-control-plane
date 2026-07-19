@@ -31,6 +31,7 @@ beforeAll(async () => {
       name: 'public project',
       webhookSecretRef: 'SUPER_SECRET_ENV_KEY',
       isPublicOnDashboard: true,
+      repositoryUrl: 'https://github.com/sl-cloud/api-test-gateway.git',
     })
     .returning();
   publicProjectId = publicProject!.id;
@@ -195,11 +196,13 @@ describe('GET /api/v1/public/runs', () => {
         'createdAt',
         'id',
         'projectSlug',
+        'repositoryUrl',
         'status',
         'updatedAt',
         'workflowName',
       ].sort(),
     );
+    expect(entry.repositoryUrl).toBe('https://github.com/sl-cloud/api-test-gateway.git');
   });
 
   it('filters by project slug', async () => {
@@ -232,6 +235,7 @@ describe('GET /api/v1/public/runs/:id', () => {
     expect(body.id).toBe(publicRunId);
     expect(body.projectSlug).toBe(publicProjectSlug);
     expect(body.workflowName).toBe('change-analysis');
+    expect(body.repositoryUrl).toBe('https://github.com/sl-cloud/api-test-gateway.git');
     expect(Array.isArray(body.steps)).toBe(true);
     expect(Array.isArray(body.aiOperations)).toBe(true);
     expect(body).not.toHaveProperty('totalCostUsd');

@@ -31,6 +31,16 @@ export const projectsTable = pgTable('projects', {
   // itself here.
   webhookSecretRef: text('webhook_secret_ref').notNull(),
   isPublicOnDashboard: boolean('is_public_on_dashboard').notNull().default(true),
+  // Commit SHA of the last deployment whose change-analysis run completed
+  // (analysis + execution finished, independent of whether generated tests
+  // passed). Used as the diff base for the next run instead of the deployed
+  // commit's immediate Git parent, which is wrong whenever deploys are
+  // batched, skipped, rolled back, or merge commits are involved.
+  lastSuccessfulCommitSha: text('last_successful_commit_sha'),
+  // Learned from the first webhook payload that includes a resolvable
+  // repository, so the dashboard can link a run's commit SHA to the actual
+  // GitHub commit. Never overwritten once set.
+  repositoryUrl: text('repository_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
