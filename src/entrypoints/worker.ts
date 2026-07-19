@@ -3,7 +3,8 @@ import { loadConfig } from '../config/index.js';
 import { createDbPool } from '../db/client.js';
 import { createDb } from '../db/index.js';
 import { buildLoggerOptions } from '../lib/logger.js';
-import { createBoss, startWorkflowWorker } from '../modules/runs/queue.js';
+import { createBoss, enqueueWorkflowRun, startWorkflowWorker } from '../modules/runs/queue.js';
+import { recoverInterruptedRuns } from '../modules/runs/workflow-runner.js';
 import { registerChangeAnalysisWorkflow } from '../modules/analysis/workflow.js';
 import pino from 'pino';
 
@@ -21,9 +22,19 @@ async function main(): Promise<void> {
   const pool = createDbPool(config);
   const db = createDb(pool);
   const boss = await createBoss(config.DATABASE_URL);
+  const recovery = await recoverInterruptedRuns(db);
 
   await startWorkflowWorker(boss, db);
-  logger.info('worker started: consuming workflow-run queue');
+  for (const runId of recovery.requeuedRunIds) {
+    await enqueueWorkflowRun(boss, runId);
+  }
+  logger.info(
+    {
+      requeuedRunCount: recovery.requeuedRunIds.length,
+      cancelledRunCount: recovery.cancelledRunIds.length,
+    },
+    'worker started: consuming workflow-run queue',
+  );
 
   closeWithGrace({ delay: 5000 }, async ({ err }) => {
     if (err) {

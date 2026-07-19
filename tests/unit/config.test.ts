@@ -44,6 +44,7 @@ describe('loadConfig', () => {
       ADMIN_API_TOKEN: 'x'.repeat(20),
       AI_PROVIDER: 'openai',
       OPENAI_API_KEY: 'sk-test',
+      AI_MODEL_DEFAULT: 'gpt-test',
     });
     expect(config.AI_PROVIDER).toBe('openai');
     expect(config.OPENAI_API_KEY).toBe('sk-test');
@@ -66,6 +67,7 @@ describe('loadConfig', () => {
       PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3001',
       ADMIN_API_TOKEN: 'x'.repeat(20),
       AI_PROVIDER: 'opencode',
+      AI_MODEL_DEFAULT: 'opencode-test',
     });
     expect(config.AI_PROVIDER).toBe('opencode');
   });
@@ -77,6 +79,7 @@ describe('loadConfig', () => {
       ADMIN_API_TOKEN: 'x'.repeat(20),
       AI_PROVIDER: 'deepseek',
       DEEPSEEK_API_KEY: 'sk-test',
+      AI_MODEL_DEFAULT: 'deepseek-test',
     });
     expect(config.AI_PROVIDER).toBe('deepseek');
     expect(config.DEEPSEEK_API_KEY).toBe('sk-test');
@@ -91,5 +94,29 @@ describe('loadConfig', () => {
         AI_PROVIDER: 'deepseek',
       }),
     ).toThrow(/DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek/);
+  });
+
+  it('rejects the fake provider in production', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+        PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3001',
+        ADMIN_API_TOKEN: 'x'.repeat(20),
+        AI_PROVIDER: 'fake',
+      }),
+    ).toThrow(/AI_PROVIDER=fake is only allowed outside production/);
+  });
+
+  it('rejects real providers with the fake default model', () => {
+    expect(() =>
+      loadConfig({
+        DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+        PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3001',
+        ADMIN_API_TOKEN: 'x'.repeat(20),
+        AI_PROVIDER: 'openai',
+        OPENAI_API_KEY: 'sk-test',
+      }),
+    ).toThrow(/AI_MODEL_DEFAULT must be set to a real model/);
   });
 });

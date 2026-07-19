@@ -51,6 +51,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  if (result.data.NODE_ENV === 'production' && result.data.AI_PROVIDER === 'fake') {
+    throw new Error(
+      'Invalid environment configuration:\n  - AI_PROVIDER=fake is only allowed outside production',
+    );
+  }
+
+  if (result.data.AI_PROVIDER !== 'fake' && result.data.AI_MODEL_DEFAULT === 'fake-planner-v1') {
+    throw new Error(
+      'Invalid environment configuration:\n  - AI_MODEL_DEFAULT must be set to a real model when AI_PROVIDER is not fake',
+    );
+  }
+
   return result.data;
 }
 

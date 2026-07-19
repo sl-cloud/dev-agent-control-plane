@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { loadConfig } from '../../src/config/index.js';
 import { createDbPool, type DbPool } from '../../src/db/client.js';
 import { createDb, type Db } from '../../src/db/index.js';
@@ -14,6 +14,7 @@ import {
   defineWorkflow,
   executeRun,
   prepareRetry,
+  recoverInterruptedRuns,
   resetWorkflowRegistry,
 } from '../../src/modules/runs/workflow-runner.js';
 import { registerChangeAnalysisWorkflow } from '../../src/modules/analysis/workflow.js';
@@ -33,11 +34,15 @@ let pool: DbPool;
 let db: Db;
 let projectId: string;
 
-async function createRun(workflowName: string, commitSha?: string): Promise<string> {
+async function createRun(
+  workflowName: string,
+  commitSha?: string,
+  runProjectId = projectId,
+): Promise<string> {
   const [run] = await db
     .insert(agentRunsTable)
     .values({
-      projectId,
+      projectId: runProjectId,
       workflowName,
       triggerDeliveryId: crypto.randomUUID(),
       commitSha,
@@ -206,6 +211,57 @@ describe('executeRun', () => {
     expect(attempts.map((a) => a.attempt).sort()).toEqual([1, 2]);
   });
 
+  it('recovers interrupted running runs for worker-start requeue', async () => {
+    const runId = await createRun('stub');
+    await db.update(agentRunsTable).set({ status: 'running' }).where(eq(agentRunsTable.id, runId));
+    await db.insert(workflowStepsTable).values({
+      runId,
+      stepName: 'blocked-step',
+      attempt: 1,
+      status: 'running',
+      startedAt: new Date(),
+    });
+
+    const recovery = await recoverInterruptedRuns(db);
+
+    expect(recovery).toEqual({ requeuedRunIds: [runId], cancelledRunIds: [] });
+    const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
+    expect(run?.status).toBe('queued');
+    const step = await db.query.workflowStepsTable.findFirst({
+      where: and(
+        eq(workflowStepsTable.runId, runId),
+        eq(workflowStepsTable.stepName, 'blocked-step'),
+      ),
+    });
+    expect(step).toMatchObject({
+      status: 'failed',
+      error: 'interrupted during worker restart',
+    });
+    expect(step?.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('cancels interrupted running runs when cancellation was already requested', async () => {
+    const runId = await createRun('stub');
+    await db
+      .update(agentRunsTable)
+      .set({ status: 'running', cancellationRequested: true })
+      .where(eq(agentRunsTable.id, runId));
+    await db.insert(workflowStepsTable).values({
+      runId,
+      stepName: 'blocked-step',
+      attempt: 1,
+      status: 'running',
+      startedAt: new Date(),
+    });
+
+    const recovery = await recoverInterruptedRuns(db);
+
+    expect(recovery).toEqual({ requeuedRunIds: [], cancelledRunIds: [runId] });
+    const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
+    expect(run?.status).toBe('cancelled');
+    expect(run?.cancellationRequested).toBe(true);
+  });
+
   it('stops before the next step when cancellation is requested mid-run', async () => {
     const calls: string[] = [];
     let runId = '';
@@ -334,50 +390,216 @@ describe('change-analysis workflow', () => {
   });
 
   it('reruns previously accepted specs on a later run for the same project', async () => {
-    const sourceContext = sourceContextFixture();
-    const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
-    const passingExecution = {
-      passed: true,
-      failed: false,
-      duration: 42,
-      results: [{ title: 'generated smoke test', status: 'passed' as const }],
+    const [project] = await db
+      .insert(projectsTable)
+      .values({
+        slug: `workflow-runner-rerun-test-${crypto.randomUUID()}`,
+        name: 'workflow runner rerun test project',
+        webhookSecretRef: 'UNUSED',
+      })
+      .returning();
+    const rerunProjectId = project!.id;
+
+    try {
+      const sourceContext = sourceContextFixture();
+      const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+      const passingExecution = {
+        passed: true,
+        failed: false,
+        duration: 42,
+        results: [{ title: 'generated smoke test', status: 'passed' as const }],
+      };
+
+      registerChangeAnalysisWorkflow(config, {
+        sourceContextBuilder: async () => sourceContext,
+        aiGenerator: createFakeGenerator(config),
+        testExecutor: async () => passingExecution,
+      });
+
+      const firstRunId = await createRun('change-analysis', 'commit-b-sha', rerunProjectId);
+      await executeRun(db, firstRunId);
+      const firstAccepted = await db.query.acceptedGeneratedTestsTable.findFirst({
+        where: eq(acceptedGeneratedTestsTable.runId, firstRunId),
+      });
+      expect(firstAccepted).toBeDefined();
+
+      const secondRunId = await createRun('change-analysis', 'commit-c-sha', rerunProjectId);
+      await executeRun(db, secondRunId);
+
+      const secondSteps = await db.query.workflowStepsTable.findMany({
+        where: eq(workflowStepsTable.runId, secondRunId),
+      });
+      const rerunOutput = secondSteps.find((step) => step.stepName === 'rerunAcceptedTests')
+        ?.output as { reruns: Array<{ acceptedTestId: string; passed: boolean }> };
+      expect(rerunOutput.reruns.length).toBeGreaterThanOrEqual(1);
+      expect(rerunOutput.reruns).toContainEqual(
+        expect.objectContaining({ acceptedTestId: firstAccepted!.id, passed: true }),
+      );
+
+      const projectAfterFirstRun = await db.query.projectsTable.findFirst({
+        where: eq(projectsTable.id, rerunProjectId),
+      });
+      expect(projectAfterFirstRun?.repositoryUrl).toBe(
+        'https://github.com/sl-cloud/api-test-gateway.git',
+      );
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, rerunProjectId));
+    }
+  });
+
+  it('skips persisting duplicate accepted spec content for the same project', async () => {
+    const [project] = await db
+      .insert(projectsTable)
+      .values({
+        slug: `workflow-runner-dedup-test-${crypto.randomUUID()}`,
+        name: 'workflow runner dedup test project',
+        webhookSecretRef: 'UNUSED',
+      })
+      .returning();
+    const dedupProjectId = project!.id;
+
+    try {
+      const sourceContext = sourceContextFixture();
+      const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+      const passingExecution = {
+        passed: true,
+        failed: false,
+        duration: 42,
+        results: [{ title: 'generated smoke test', status: 'passed' as const }],
+      };
+
+      registerChangeAnalysisWorkflow(config, {
+        sourceContextBuilder: async () => sourceContext,
+        aiGenerator: createFakeGenerator(config),
+        testExecutor: async () => passingExecution,
+      });
+
+      const firstRunId = await createRun('change-analysis', 'commit-dedup-a', dedupProjectId);
+      await executeRun(db, firstRunId);
+      const firstAccepted = await db.query.acceptedGeneratedTestsTable.findFirst({
+        where: eq(acceptedGeneratedTestsTable.runId, firstRunId),
+      });
+      expect(firstAccepted).toBeDefined();
+
+      const secondRunId = await createRun('change-analysis', 'commit-dedup-b', dedupProjectId);
+      await executeRun(db, secondRunId);
+
+      const secondSteps = await db.query.workflowStepsTable.findMany({
+        where: eq(workflowStepsTable.runId, secondRunId),
+      });
+      expect(
+        secondSteps.find((step) => step.stepName === 'persistAcceptedTests')?.output,
+      ).toMatchObject({
+        persisted: false,
+        reason: 'duplicate spec already accepted',
+        acceptedTestId: firstAccepted!.id,
+        duplicateOfRunId: firstRunId,
+      });
+
+      const acceptedWithSameHash = await db.query.acceptedGeneratedTestsTable.findMany({
+        where: and(
+          eq(acceptedGeneratedTestsTable.projectId, dedupProjectId),
+          eq(acceptedGeneratedTestsTable.specHash, firstAccepted!.specHash),
+        ),
+      });
+      expect(acceptedWithSameHash).toHaveLength(1);
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, dedupProjectId));
+    }
+  });
+
+  it('handles no-change deployments without asking the provider for tests', async () => {
+    const [project] = await db
+      .insert(projectsTable)
+      .values({
+        slug: `workflow-runner-no-change-test-${crypto.randomUUID()}`,
+        name: 'workflow runner no change test project',
+        webhookSecretRef: 'UNUSED',
+      })
+      .returning();
+    const noChangeProjectId = project!.id;
+    const sourceContext: SourceContext = {
+      ...sourceContextFixture(),
+      baseSha: 'same-commit',
+      commitSha: 'same-commit',
+      diffStat: '',
+      diff: '',
+      changedFiles: [],
+      fileContents: [],
+      existingGeneratedTests: [],
     };
+    const usage = { model: 'test-model', promptTokens: 1, completionTokens: 1, costUsd: 0 };
+    const generator: AiGenerator = {
+      async analyseChanges() {
+        return {
+          output: {
+            summary: 'No deployment diff detected.',
+            behaviouralChanges: [],
+            securitySensitive: false,
+          },
+          usage,
+        };
+      },
+      async planTests() {
+        throw new Error('planTests should not be called for an empty analysis');
+      },
+      async generateTests() {
+        throw new Error('generateTests should not be called for an empty plan');
+      },
+      async classifyTestFailure() {
+        throw new Error('classifyTestFailure should not be called for a skipped no-op spec');
+      },
+      async repairTests() {
+        throw new Error('repairTests should not be called for a skipped no-op spec');
+      },
+    };
+    let executedSpecSource = '';
 
-    registerChangeAnalysisWorkflow(config, {
-      sourceContextBuilder: async () => sourceContext,
-      aiGenerator: createFakeGenerator(config),
-      testExecutor: async () => passingExecution,
-    });
+    try {
+      const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+      registerChangeAnalysisWorkflow(config, {
+        sourceContextBuilder: async () => sourceContext,
+        aiGenerator: generator,
+        testExecutor: async (specSource) => {
+          executedSpecSource = specSource;
+          return {
+            passed: true,
+            failed: false,
+            duration: 5,
+            results: [{ title: 'no behavioural changes detected', status: 'skipped' }],
+          };
+        },
+      });
+      const runId = await createRun('change-analysis', 'same-commit', noChangeProjectId);
 
-    const firstRunId = await createRun('change-analysis', 'commit-b-sha');
-    await executeRun(db, firstRunId);
-    const firstAccepted = await db.query.acceptedGeneratedTestsTable.findFirst({
-      where: eq(acceptedGeneratedTestsTable.runId, firstRunId),
-    });
-    expect(firstAccepted).toBeDefined();
+      await executeRun(db, runId);
 
-    const secondRunId = await createRun('change-analysis', 'commit-c-sha');
-    await executeRun(db, secondRunId);
-
-    const secondSteps = await db.query.workflowStepsTable.findMany({
-      where: eq(workflowStepsTable.runId, secondRunId),
-    });
-    const rerunOutput = secondSteps.find((step) => step.stepName === 'rerunAcceptedTests')
-      ?.output as { reruns: Array<{ acceptedTestId: string; passed: boolean }> };
-    expect(rerunOutput.reruns.length).toBeGreaterThanOrEqual(1);
-    expect(rerunOutput.reruns).toContainEqual(
-      expect.objectContaining({ acceptedTestId: firstAccepted!.id, passed: true }),
-    );
-
-    // repositoryUrl was already backfilled by an earlier test in this shared
-    // project; a run with a different repositoryUrl in its source context
-    // must not overwrite it once set.
-    const projectAfterFirstRun = await db.query.projectsTable.findFirst({
-      where: eq(projectsTable.id, projectId),
-    });
-    expect(projectAfterFirstRun?.repositoryUrl).toBe(
-      'https://github.com/sl-cloud/api-test-gateway.git',
-    );
+      const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
+      expect(run?.status).toBe('succeeded');
+      const steps = await db.query.workflowStepsTable.findMany({
+        where: eq(workflowStepsTable.runId, runId),
+      });
+      expect(steps.find((step) => step.stepName === 'planTests')?.output).toEqual({
+        tests: [],
+      });
+      expect(executedSpecSource).toContain("test.skip('no behavioural changes detected'");
+      expect(steps.find((step) => step.stepName === 'finaliseReport')?.output).toMatchObject({
+        passed: true,
+        failed: false,
+        passedCount: 0,
+        failedCount: 0,
+      });
+      expect(steps.find((step) => step.stepName === 'persistAcceptedTests')?.output).toEqual({
+        persisted: false,
+        reason: 'no tests planned',
+      });
+      const operations = await db.query.aiOperationsTable.findMany({
+        where: eq(aiOperationsTable.runId, runId),
+      });
+      expect(operations.map((operation) => operation.kind)).toEqual(['change-analysis']);
+    } finally {
+      await db.delete(projectsTable).where(eq(projectsTable.id, noChangeProjectId));
+    }
   });
 
   it('repairs a generated-test failure and persists the repaired passing spec', async () => {
@@ -505,7 +727,20 @@ describe('change-analysis workflow', () => {
         };
       },
       async planTests() {
-        return { output: { tests: [] }, usage };
+        return {
+          output: {
+            tests: [
+              {
+                title: 'still failing',
+                kind: 'regression',
+                reasoning: 'prove repair loop stops',
+                priority: 'must',
+                coveredByExisting: false,
+              },
+            ],
+          },
+          usage,
+        };
       },
       async generateTests() {
         return {

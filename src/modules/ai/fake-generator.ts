@@ -33,16 +33,32 @@ function testTitle(title: string, index: number): string {
   return JSON.stringify(cleanTitle);
 }
 
+function fakeCase(index: number): { method: 'get' | 'post'; path: string; expectedStatus: number } {
+  const cases: Array<{ method: 'get' | 'post'; path: string; expectedStatus: number }> = [
+    { method: 'get', path: '/health/live', expectedStatus: 200 },
+    { method: 'get', path: '/health/ready', expectedStatus: 200 },
+    { method: 'get', path: '/api/v1/projects', expectedStatus: 401 },
+    { method: 'get', path: '/api/v1/auth/me', expectedStatus: 401 },
+    { method: 'get', path: '/api/v1/users', expectedStatus: 401 },
+    { method: 'post', path: '/api/v1/tests/trigger', expectedStatus: 401 },
+  ];
+  return cases[index % cases.length]!;
+}
+
 function generatedSpecSource(plan: TestPlan): string {
   const tests = plan.tests
-    .map(
-      (test, index) => `
-test(${testTitle(test.title, index)}, async ({ page }) => {
-  const response = await page.goto('/');
-  expect(response?.ok()).toBe(true);
-  await expect(page).toHaveTitle(/.+/);
-});`,
-    )
+    .map((test, index) => {
+      const testCase = fakeCase(index);
+      const requestCall =
+        testCase.method === 'post'
+          ? `request.post('${testCase.path}', { data: { branch: 'main' } })`
+          : `request.get('${testCase.path}')`;
+      return `
+test(${testTitle(test.title, index)}, async ({ request }) => {
+  const response = await ${requestCall};
+  expect(response.status()).toBe(${testCase.expectedStatus});
+});`;
+    })
     .join('\n');
 
   return `import { expect, test } from '@playwright/test';

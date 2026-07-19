@@ -20,6 +20,9 @@ const DENIED_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'require(', pattern: /\brequire\s*\(/ },
 ];
 
+const ROOT_HOMEPAGE_SMOKE_PATTERN =
+  /\btest\s*\(\s*(?:"[^"]*"|'[^']*'|`[^`]*`)\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{\s*const\s+response\s*=\s*await\s+page\.goto\s*\(\s*['"]\/['"]\s*\)\s*;\s*expect\s*\(\s*response\?\.ok\s*\(\s*\)\s*\)\s*\.toBe\s*\(\s*true\s*\)\s*;\s*await\s+expect\s*\(\s*page\s*\)\s*\.toHaveTitle\s*\(\s*\/\.\+\/\s*\)\s*;\s*\}\s*\)\s*;/g;
+
 export class GeneratedSpecValidationError extends Error {
   constructor(readonly violations: string[]) {
     super(`Generated spec validation failed: ${JSON.stringify({ violations })}`);
@@ -50,6 +53,11 @@ export function generatedSpecViolations(specSource: string): string[] {
   const testCount = [...specSource.matchAll(/\btest\s*\(/g)].length;
   if (testCount > MAX_TEST_COUNT) {
     violations.push(`spec source contains ${testCount} test() calls, maximum is ${MAX_TEST_COUNT}`);
+  }
+
+  const homepageSmokeCount = [...specSource.matchAll(ROOT_HOMEPAGE_SMOKE_PATTERN)].length;
+  if (testCount > 1 && homepageSmokeCount === testCount) {
+    violations.push('spec contains only repeated homepage smoke checks');
   }
 
   const disallowedImports = importSources(specSource).filter(

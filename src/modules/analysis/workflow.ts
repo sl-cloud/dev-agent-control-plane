@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import type { AppConfig } from '../../config/index.js';
 import type { Db } from '../../db/index.js';
@@ -36,6 +37,17 @@ async function loadStepOutput<T>(db: Db, runId: string, stepName: string): Promi
     throw new Error(`missing output for step ${stepName}`);
   }
   return step.output as T;
+}
+
+function hashSpecSource(specSource: string): string {
+  return createHash('sha256').update(specSource).digest('hex');
+}
+
+function skippedSpecSource(reason: string): string {
+  return `import { test } from '@playwright/test';
+
+test.skip('${reason}', async () => {});
+`;
 }
 
 export interface ChangeAnalysisWorkflowDeps {
@@ -90,6 +102,10 @@ export function registerChangeAnalysisWorkflow(
         const analysis = ChangeAnalysisSchema.parse(
           await loadStepOutput<ChangeAnalysis>(ctx.db, ctx.run.id, 'analyseChanges'),
         );
+        if (analysis.behaviouralChanges.length === 0 && sourceContext.changedFiles.length === 0) {
+          return { tests: [] };
+        }
+
         const result = await generator.planTests(sourceContext, analysis);
         const output = TestPlanSchema.parse(result.output);
         await recordAiOperation({
@@ -116,6 +132,10 @@ export function registerChangeAnalysisWorkflow(
         const plan = TestPlanSchema.parse(
           await loadStepOutput<TestPlan>(ctx.db, ctx.run.id, 'planTests'),
         );
+        if (plan.tests.length === 0) {
+          return { specSource: skippedSpecSource('no behavioural changes detected') };
+        }
+
         const result = await generator.generateTests(sourceContext, analysis, plan);
         const output = GeneratedSpecSchema.parse(result.output);
         await recordAiOperation({
@@ -226,11 +246,19 @@ export function registerChangeAnalysisWorkflow(
           return { persisted: false, reason: 'final report did not pass' };
         }
 
+        const plan = TestPlanSchema.parse(
+          await loadStepOutput<TestPlan>(ctx.db, ctx.run.id, 'planTests'),
+        );
+        if (plan.tests.length === 0) {
+          return { persisted: false, reason: 'no tests planned' };
+        }
+
         const generated = GeneratedSpecSchema.parse(
           await loadStepOutput<GeneratedSpec>(ctx.db, ctx.run.id, 'generateTests'),
         );
         const repair = await loadStepOutput<TestRepairOutput>(ctx.db, ctx.run.id, 'repairTests');
         const specSource = repair.finalSpecSource ?? generated.specSource;
+        const specHash = hashSpecSource(specSource);
         const [accepted] = await ctx.db
           .insert(acceptedGeneratedTestsTable)
           .values({
@@ -239,10 +267,33 @@ export function registerChangeAnalysisWorkflow(
             commitSha: ctx.run.commitSha,
             branch: ctx.run.branch,
             specSource,
+            specHash,
             passedCount: report.passedCount,
             duration: report.duration,
           })
+          .onConflictDoNothing({
+            target: [acceptedGeneratedTestsTable.projectId, acceptedGeneratedTestsTable.specHash],
+          })
           .returning();
+
+        if (!accepted) {
+          const existing = await ctx.db.query.acceptedGeneratedTestsTable.findFirst({
+            where: and(
+              eq(acceptedGeneratedTestsTable.projectId, ctx.run.projectId),
+              eq(acceptedGeneratedTestsTable.specHash, specHash),
+            ),
+          });
+
+          return {
+            persisted: false,
+            reason: 'duplicate spec already accepted',
+            acceptedTestId: existing?.id,
+            duplicateOfRunId: existing?.runId,
+            source: repair.finalSpecSource ? 'repaired' : 'original',
+            passedCount: report.passedCount,
+            duration: report.duration,
+          };
+        }
 
         return {
           persisted: true,

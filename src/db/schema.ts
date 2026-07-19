@@ -128,21 +128,28 @@ export const aiOperationsTable = pgTable('ai_operations', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const acceptedGeneratedTestsTable = pgTable('accepted_generated_tests', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  projectId: uuid('project_id')
-    .notNull()
-    .references(() => projectsTable.id, { onDelete: 'cascade' }),
-  runId: uuid('run_id')
-    .notNull()
-    .references(() => agentRunsTable.id, { onDelete: 'cascade' }),
-  commitSha: text('commit_sha'),
-  branch: text('branch'),
-  specSource: text('spec_source').notNull(),
-  passedCount: integer('passed_count').notNull(),
-  duration: integer('duration').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const acceptedGeneratedTestsTable = pgTable(
+  'accepted_generated_tests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projectsTable.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => agentRunsTable.id, { onDelete: 'cascade' }),
+    commitSha: text('commit_sha'),
+    branch: text('branch'),
+    specSource: text('spec_source').notNull(),
+    specHash: text('spec_hash').notNull(),
+    passedCount: integer('passed_count').notNull(),
+    duration: integer('duration').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('accepted_generated_tests_project_spec_hash_unique').on(table.projectId, table.specHash),
+  ],
+);
 
 export type Project = typeof projectsTable.$inferSelect;
 export type NewProject = typeof projectsTable.$inferInsert;

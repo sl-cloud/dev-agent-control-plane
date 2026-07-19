@@ -161,6 +161,47 @@ export async function prepareRetry(db: Db, runId: string): Promise<void> {
     .where(eq(agentRunsTable.id, runId));
 }
 
+export interface InterruptedRunRecovery {
+  requeuedRunIds: string[];
+  cancelledRunIds: string[];
+}
+
+export async function recoverInterruptedRuns(db: Db): Promise<InterruptedRunRecovery> {
+  const runningRuns = await db.query.agentRunsTable.findMany({
+    where: eq(agentRunsTable.status, 'running'),
+  });
+  const requeuedRunIds: string[] = [];
+  const cancelledRunIds: string[] = [];
+
+  for (const run of runningRuns) {
+    await db
+      .update(workflowStepsTable)
+      .set({
+        status: 'failed',
+        finishedAt: new Date(),
+        error: 'interrupted during worker restart',
+      })
+      .where(and(eq(workflowStepsTable.runId, run.id), eq(workflowStepsTable.status, 'running')));
+
+    if (run.cancellationRequested) {
+      await db
+        .update(agentRunsTable)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(eq(agentRunsTable.id, run.id));
+      cancelledRunIds.push(run.id);
+      continue;
+    }
+
+    await db
+      .update(agentRunsTable)
+      .set({ status: 'queued', updatedAt: new Date() })
+      .where(eq(agentRunsTable.id, run.id));
+    requeuedRunIds.push(run.id);
+  }
+
+  return { requeuedRunIds, cancelledRunIds };
+}
+
 export const stubWorkflow = defineWorkflow('stub', [
   {
     name: 'noop',

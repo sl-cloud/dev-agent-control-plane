@@ -58,6 +58,27 @@ describe('validateGeneratedSpecSource', () => {
     );
   });
 
+  it('rejects repeated homepage smoke checks', () => {
+    const specSource = `import { expect, test } from '@playwright/test';
+
+test("covers other 1", async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.ok()).toBe(true);
+  await expect(page).toHaveTitle(/.+/);
+});
+
+test("covers endpoint changed 2", async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.ok()).toBe(true);
+  await expect(page).toHaveTitle(/.+/);
+});
+`;
+
+    expect(generatedSpecViolations(specSource)).toContain(
+      'spec contains only repeated homepage smoke checks',
+    );
+  });
+
   it('lists every violation in one error', () => {
     expect(() =>
       validateGeneratedSpecSource(
