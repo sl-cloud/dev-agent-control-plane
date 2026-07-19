@@ -54,7 +54,9 @@ describe('createOpencodeGenerator', () => {
       },
     ) as unknown as typeof import('node:child_process').execFile;
 
-    const generator = createOpencodeGenerator(config, execFileImpl);
+    const existsSyncImpl = vi.fn(() => true);
+
+    const generator = createOpencodeGenerator(config, execFileImpl, existsSyncImpl);
     const result = await generator.analyseChanges(sourceContext);
 
     expect(result.output.summary).toBe('ok');
@@ -75,8 +77,19 @@ describe('createOpencodeGenerator', () => {
         callback(null, 'not json at all', '');
       },
     ) as unknown as typeof import('node:child_process').execFile;
+    const existsSyncImpl = vi.fn(() => true);
 
-    const generator = createOpencodeGenerator(config, execFileImpl);
+    const generator = createOpencodeGenerator(config, execFileImpl, existsSyncImpl);
     await expect(generator.analyseChanges(sourceContext)).rejects.toThrow();
+  });
+
+  it('rejects with a clear message when opencode credentials directory is absent', () => {
+    const execFileImpl = vi.fn() as unknown as typeof import('node:child_process').execFile;
+    const existsSyncImpl = vi.fn(() => false);
+
+    expect(() => createOpencodeGenerator(config, execFileImpl, existsSyncImpl)).toThrow(
+      /opencode is not authenticated/,
+    );
+    expect(execFileImpl).not.toHaveBeenCalled();
   });
 });

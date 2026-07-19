@@ -99,7 +99,11 @@ async function runOpencode(
   return { text: event.content ?? '', usage: event.usage, model: event.model };
 }
 
-export function createOpencodeGenerator(config: AppConfig, execFileImpl: ExecFileFn = execFileCallback): AiGenerator {
+export function createOpencodeGenerator(
+  config: AppConfig,
+  execFileImpl: ExecFileFn = execFileCallback,
+  existsSyncImpl: typeof existsSync = existsSync,
+): AiGenerator {
   const model = config.AI_MODEL_DEFAULT;
 
   // Update this path if opencode's documented config directory differs
@@ -108,7 +112,7 @@ export function createOpencodeGenerator(config: AppConfig, execFileImpl: ExecFil
     process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? '', '.local', 'share'),
     'opencode',
   );
-  if (!existsSync(credentialPath)) {
+  if (!existsSyncImpl(credentialPath)) {
     throw new Error(
       `opencode is not authenticated (expected credentials at ${credentialPath}). Run "opencode auth login".`,
     );
