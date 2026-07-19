@@ -49,7 +49,7 @@ async function call<T>(
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error(`openai response for ${schemaName} had no content`);
+    throw new Error(`provider response for ${schemaName} had no content`);
   }
   const output = parse(JSON.parse(content));
 

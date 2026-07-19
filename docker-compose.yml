@@ -53,6 +53,7 @@ services:
       - .:/app
       - /app/node_modules
       - /app/dashboard/node_modules
+      # opencode OAuth credentials (local dev only, read-only; see README)
       - ${HOME}/.local/share/opencode:/home/app/.local/share/opencode:ro
     env_file:
       - .env

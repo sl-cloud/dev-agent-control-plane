@@ -93,6 +93,7 @@ async function runOpencode(
     env: {
       HOME: process.env.HOME,
       PATH: process.env.PATH,
+      XDG_DATA_HOME: process.env.XDG_DATA_HOME,
     },
   });
   const event = parseFinalAssistantContent(stdout);
@@ -109,7 +110,7 @@ export function createOpencodeGenerator(
   // Update this path if opencode's documented config directory differs
   // from XDG_DATA_HOME/opencode on the host running this check.
   const credentialPath = join(
-    process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? '', '.local', 'share'),
+    process.env.XDG_DATA_HOME || join(process.env.HOME ?? '', '.local', 'share'),
     'opencode',
   );
   if (!existsSyncImpl(credentialPath)) {
