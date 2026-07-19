@@ -79,3 +79,37 @@ describe('createOpenAiGenerator', () => {
     expect(result.output.specSource).toContain('@playwright/test');
   });
 });
+
+describe('createOpenAiGenerator with deepseek provider', () => {
+  const deepseekConfig = {
+    ...config,
+    AI_PROVIDER: 'deepseek',
+    OPENAI_API_KEY: undefined,
+    DEEPSEEK_API_KEY: 'sk-deepseek-test',
+  } as unknown as AppConfig;
+
+  it('uses json_object response format instead of json_schema', async () => {
+    const client = mockClient({
+      summary: 'Changed routes.ts',
+      behaviouralChanges: [],
+      securitySensitive: false,
+    });
+    const generator = createOpenAiGenerator(deepseekConfig, client as never);
+
+    const result = await generator.analyseChanges(sourceContext);
+
+    expect(client.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_format: { type: 'json_object' },
+      }),
+    );
+    expect(result.output.summary).toBe('Changed routes.ts');
+  });
+
+  it('throws when a deepseek response fails local Zod validation', async () => {
+    const client = mockClient({ summary: 'missing required fields' });
+    const generator = createOpenAiGenerator(deepseekConfig, client as never);
+
+    await expect(generator.analyseChanges(sourceContext)).rejects.toThrow();
+  });
+});

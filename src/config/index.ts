@@ -12,8 +12,9 @@ const envSchema = z.object({
 
   COMMIT_SHA: z.string().default('dev'),
 
-  AI_PROVIDER: z.enum(['fake', 'openai', 'opencode']).default('fake'),
+  AI_PROVIDER: z.enum(['fake', 'openai', 'opencode', 'deepseek']).default('fake'),
   OPENAI_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
   AI_MODEL_DEFAULT: z.string().default('fake-planner-v1'),
   AI_MODEL_CHANGE_ANALYSIS: z.string().optional(),
   AI_MODEL_TEST_PLANNING: z.string().optional(),
@@ -39,6 +40,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (result.data.AI_PROVIDER === 'openai' && !result.data.OPENAI_API_KEY) {
     throw new Error(
       'Invalid environment configuration:\n  - OPENAI_API_KEY is required when AI_PROVIDER=openai',
+    );
+  }
+
+  if (result.data.AI_PROVIDER === 'deepseek' && !result.data.DEEPSEEK_API_KEY) {
+    throw new Error(
+      'Invalid environment configuration:\n  - DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek',
     );
   }
 

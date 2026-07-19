@@ -29,17 +29,22 @@ async function call<T>(
   jsonSchema: Record<string, unknown>,
   parse: (raw: unknown) => T,
   config: AppConfig,
+  useJsonObjectMode: boolean,
 ): Promise<AiCallResult<T>> {
   const response = await client.chat.completions.create({
     model,
     messages: [
-      { role: 'system', content: system },
+      {
+        role: 'system',
+        content: useJsonObjectMode
+          ? `${system}\n\nRespond with a single JSON object matching this shape (no markdown, no code fences): ${JSON.stringify(jsonSchema)}`
+          : system,
+      },
       { role: 'user', content: userContent },
     ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: { name: schemaName, schema: jsonSchema, strict: true },
-    },
+    response_format: useJsonObjectMode
+      ? { type: 'json_object' }
+      : { type: 'json_schema', json_schema: { name: schemaName, schema: jsonSchema, strict: true } },
   });
 
   const content = response.choices[0]?.message?.content;
@@ -63,7 +68,14 @@ async function call<T>(
 }
 
 export function createOpenAiGenerator(config: AppConfig, client?: OpenAiClient): AiGenerator {
-  const openai: OpenAiClient = client ?? new OpenAI({ apiKey: config.OPENAI_API_KEY });
+  const isDeepseek = config.AI_PROVIDER === 'deepseek';
+  const openai: OpenAiClient =
+    client ??
+    new OpenAI(
+      isDeepseek
+        ? { apiKey: config.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' }
+        : { apiKey: config.OPENAI_API_KEY },
+    );
   const analysisModel = config.AI_MODEL_CHANGE_ANALYSIS ?? config.AI_MODEL_DEFAULT;
   const planningModel = config.AI_MODEL_TEST_PLANNING ?? config.AI_MODEL_DEFAULT;
   const generationModel = config.AI_MODEL_DEFAULT;
@@ -79,6 +91,7 @@ export function createOpenAiGenerator(config: AppConfig, client?: OpenAiClient):
         CHANGE_ANALYSIS_JSON_SCHEMA,
         (raw) => ChangeAnalysisSchema.parse(raw),
         config,
+        isDeepseek,
       );
     },
 
@@ -95,6 +108,7 @@ export function createOpenAiGenerator(config: AppConfig, client?: OpenAiClient):
         TEST_PLAN_JSON_SCHEMA,
         (raw) => TestPlanSchema.parse(raw),
         config,
+        isDeepseek,
       );
     },
 
@@ -112,6 +126,7 @@ export function createOpenAiGenerator(config: AppConfig, client?: OpenAiClient):
         GENERATED_SPEC_JSON_SCHEMA,
         (raw) => GeneratedSpecSchema.parse(raw),
         config,
+        isDeepseek,
       );
     },
   };

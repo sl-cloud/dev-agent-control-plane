@@ -89,6 +89,15 @@ re-run `opencode auth login` and confirm the credential path matches the
 compose bind mount in `docker-compose.yml`. This is a local-dev setup only
 for now; staging doesn't have a way to deliver opencode credentials yet.
 
+**DeepSeek**: set `AI_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` in `.env`,
+then restart the worker and trigger a webhook as above; real content should
+appear the same way it does for OpenAI. DeepSeek's chat completions API is
+OpenAI-SDK-compatible, but it doesn't enforce the response shape server
+side the way OpenAI's `json_schema` mode does, only that the reply is valid
+JSON. Local Zod validation is what actually checks the shape for this
+provider, so an occasional generation that fails validation (and therefore
+fails that workflow step) is expected here in a way it isn't for OpenAI.
+
 ## Useful Commands
 
 Run these inside the healthy API container:

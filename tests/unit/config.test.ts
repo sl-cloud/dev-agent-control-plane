@@ -57,4 +57,27 @@ describe('loadConfig', () => {
     });
     expect(config.AI_PROVIDER).toBe('opencode');
   });
+
+  it('accepts deepseek provider with an API key', () => {
+    const config = loadConfig({
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+      PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3001',
+      ADMIN_API_TOKEN: 'x'.repeat(20),
+      AI_PROVIDER: 'deepseek',
+      DEEPSEEK_API_KEY: 'sk-test',
+    });
+    expect(config.AI_PROVIDER).toBe('deepseek');
+    expect(config.DEEPSEEK_API_KEY).toBe('sk-test');
+  });
+
+  it('rejects deepseek provider without an API key', () => {
+    expect(() =>
+      loadConfig({
+        DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+        PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3001',
+        ADMIN_API_TOKEN: 'x'.repeat(20),
+        AI_PROVIDER: 'deepseek',
+      }),
+    ).toThrow(/DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek/);
+  });
 });

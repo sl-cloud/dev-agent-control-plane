@@ -33,6 +33,8 @@ export function createAiGenerator(config: AppConfig): AiGenerator {
       return createOpenAiGenerator(config);
     case 'opencode':
       return createOpencodeGenerator(config);
+    case 'deepseek':
+      return createOpenAiGenerator(config);
     case 'fake':
     default:
       return createFakeGenerator(config);
