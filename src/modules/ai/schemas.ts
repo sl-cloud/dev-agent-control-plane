@@ -127,3 +127,12 @@ export const TEST_PLAN_JSON_SCHEMA = {
     },
   },
 } as const;
+
+export const GENERATED_SPEC_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['specSource'],
+  properties: {
+    specSource: { type: 'string', maxLength: 20_000 },
+  },
+} as const;
