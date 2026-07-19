@@ -19,6 +19,11 @@ services:
     command: ['node', 'dist/entrypoints/worker.js']
     volumes: !reset []
     restart: unless-stopped
+    # The runtime image bakes in a HEALTHCHECK that curls the api's HTTP
+    # port; worker never serves HTTP, so that check can never pass. Disable
+    # it here rather than in the Dockerfile, since api legitimately needs it.
+    healthcheck:
+      disable: true
 
   migrate:
     image: ghcr.io/sl-cloud/dev-agent-control-plane:${IMAGE_TAG:-staging}
