@@ -7,7 +7,20 @@ import { defineWorkflow } from '../runs/workflow-runner.js';
 import { buildSourceContext, type SourceContext } from '../scm/source-context.js';
 import { createAiGenerator, type AiGenerator } from '../ai/generator.js';
 import { recordAiOperation } from '../ai/ledger.js';
-import { ChangeAnalysisSchema, TestPlanSchema, type ChangeAnalysis } from '../ai/schemas.js';
+import {
+  ChangeAnalysisSchema,
+  GeneratedSpecSchema,
+  TestPlanSchema,
+  type ChangeAnalysis,
+  type GeneratedSpec,
+  type TestPlan,
+} from '../ai/schemas.js';
+import {
+  executePlaywrightSpec,
+  type PlaywrightExecutionResult,
+} from '../execution/playwright-executor.js';
+import { finaliseExecutionReport } from '../execution/report.js';
+import { validateGeneratedSpecSource } from '../execution/spec-validator.js';
 
 async function loadStepOutput<T>(db: Db, runId: string, stepName: string): Promise<T> {
   const step = await db.query.workflowStepsTable.findFirst({
@@ -27,6 +40,7 @@ async function loadStepOutput<T>(db: Db, runId: string, stepName: string): Promi
 export interface ChangeAnalysisWorkflowDeps {
   sourceContextBuilder?: (ctx: WorkflowStepContext) => Promise<SourceContext>;
   aiGenerator?: AiGenerator;
+  testExecutor?: (specSource: string) => Promise<PlaywrightExecutionResult>;
 }
 
 export function registerChangeAnalysisWorkflow(
@@ -36,6 +50,8 @@ export function registerChangeAnalysisWorkflow(
   const generator = deps.aiGenerator ?? createAiGenerator(config);
   const sourceContextBuilder =
     deps.sourceContextBuilder ?? ((ctx) => buildSourceContext(ctx.db, ctx.run));
+  const testExecutor =
+    deps.testExecutor ?? ((specSource: string) => executePlaywrightSpec(config, specSource));
 
   defineWorkflow('change-analysis', [
     {
@@ -83,6 +99,61 @@ export function registerChangeAnalysisWorkflow(
           usage: result.usage,
         });
         return output;
+      },
+    },
+    {
+      name: 'generateTests',
+      run: async (ctx) => {
+        const sourceContext = await loadStepOutput<SourceContext>(
+          ctx.db,
+          ctx.run.id,
+          'fetchSource',
+        );
+        const analysis = ChangeAnalysisSchema.parse(
+          await loadStepOutput<ChangeAnalysis>(ctx.db, ctx.run.id, 'analyseChanges'),
+        );
+        const plan = TestPlanSchema.parse(
+          await loadStepOutput<TestPlan>(ctx.db, ctx.run.id, 'planTests'),
+        );
+        const result = await generator.generateTests(sourceContext, analysis, plan);
+        const output = GeneratedSpecSchema.parse(result.output);
+        await recordAiOperation({
+          db: ctx.db,
+          runId: ctx.run.id,
+          stepId: ctx.stepId,
+          kind: 'test-generation',
+          usage: result.usage,
+        });
+        return output;
+      },
+    },
+    {
+      name: 'validateTests',
+      run: async (ctx) => {
+        const generated = GeneratedSpecSchema.parse(
+          await loadStepOutput<GeneratedSpec>(ctx.db, ctx.run.id, 'generateTests'),
+        );
+        return validateGeneratedSpecSource(generated.specSource);
+      },
+    },
+    {
+      name: 'executeTests',
+      run: async (ctx) => {
+        const generated = GeneratedSpecSchema.parse(
+          await loadStepOutput<GeneratedSpec>(ctx.db, ctx.run.id, 'generateTests'),
+        );
+        return testExecutor(generated.specSource);
+      },
+    },
+    {
+      name: 'finaliseReport',
+      run: async (ctx) => {
+        const execution = await loadStepOutput<PlaywrightExecutionResult>(
+          ctx.db,
+          ctx.run.id,
+          'executeTests',
+        );
+        return finaliseExecutionReport(execution);
       },
     },
   ]);

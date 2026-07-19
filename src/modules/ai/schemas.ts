@@ -48,8 +48,15 @@ export const TestPlanSchema = z
   })
   .strict();
 
+export const GeneratedSpecSchema = z
+  .object({
+    specSource: z.string().max(20_000),
+  })
+  .strict();
+
 export type ChangeAnalysis = z.infer<typeof ChangeAnalysisSchema>;
 export type TestPlan = z.infer<typeof TestPlanSchema>;
+export type GeneratedSpec = z.infer<typeof GeneratedSpecSchema>;
 
 export const CHANGE_ANALYSIS_JSON_SCHEMA = {
   type: 'object',

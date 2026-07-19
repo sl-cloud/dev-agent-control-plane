@@ -16,13 +16,14 @@ import {
   resetWorkflowRegistry,
 } from '../../src/modules/runs/workflow-runner.js';
 import { registerChangeAnalysisWorkflow } from '../../src/modules/analysis/workflow.js';
-import type { AiGenerator } from '../../src/modules/ai/generator.js';
+import { createFakeGenerator } from '../../src/modules/ai/fake-generator.js';
 import type { SourceContext } from '../../src/modules/scm/source-context.js';
 
 // Fallback only; real env vars (e.g. CI's DATABASE_URL) always take
 // precedence, same pattern as tests/helpers/build-app.ts.
 const TEST_DEFAULTS = {
   DATABASE_URL: `postgres://control_plane:cp_dev_password@localhost:${process.env.DB_HOST_PORT ?? '5432'}/control_plane`,
+  PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3000',
   ADMIN_API_TOKEN: 'x'.repeat(20),
 };
 
@@ -206,7 +207,7 @@ describe('executeRun', () => {
 });
 
 describe('change-analysis workflow', () => {
-  it('persists source context, analysis, plan, and AI ledger rows', async () => {
+  it('persists source context, generated spec, execution report, and AI ledger rows', async () => {
     const sourceContext: SourceContext = {
       projectSlug: 'api-test-gateway',
       repository: 'sl-cloud/api-test-gateway',
@@ -216,48 +217,25 @@ describe('change-analysis workflow', () => {
       baseSha: '1234567890abcdef',
       environment: 'staging',
       ciRunUrl: 'https://example.test/actions/runs/1',
-      diffStat: 'src/modules/tasks/service.ts | 2 +-',
+      diffStat: 'src/modules/tasks/service.ts | 2 +-\nsrc/modules/tasks/routes.ts | 2 +-',
       diff: 'diff --git a/src/modules/tasks/service.ts b/src/modules/tasks/service.ts',
-      changedFiles: ['src/modules/tasks/service.ts'],
+      changedFiles: ['src/modules/tasks/service.ts', 'src/modules/tasks/routes.ts'],
       fileContents: [
         { path: 'src/modules/tasks/service.ts', content: 'export const changed = true;' },
+        { path: 'src/modules/tasks/routes.ts', content: 'export const route = true;' },
       ],
     };
-    const fakeGenerator: AiGenerator = {
-      analyseChanges: async () => ({
-        output: {
-          summary: 'Task service behaviour changed.',
-          behaviouralChanges: [
-            {
-              description: 'Task status validation changed.',
-              kind: 'business_rule_changed',
-              files: ['src/modules/tasks/service.ts'],
-              risk: 'medium',
-            },
-          ],
-          securitySensitive: false,
-        },
-        usage: { model: 'fake-test', promptTokens: 10, completionTokens: 5, costUsd: 0.000175 },
-      }),
-      planTests: async () => ({
-        output: {
-          tests: [
-            {
-              title: 'rejects invalid task status transition',
-              kind: 'business_rule',
-              reasoning: 'The changed service owns task status rules.',
-              priority: 'must',
-              coveredByExisting: false,
-            },
-          ],
-        },
-        usage: { model: 'fake-test', promptTokens: 12, completionTokens: 7, costUsd: 0.000235 },
-      }),
-    };
+    const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
 
-    registerChangeAnalysisWorkflow(loadConfig({ ...TEST_DEFAULTS, ...process.env }), {
+    registerChangeAnalysisWorkflow(config, {
       sourceContextBuilder: async () => sourceContext,
-      aiGenerator: fakeGenerator,
+      aiGenerator: createFakeGenerator(config),
+      testExecutor: async () => ({
+        passed: true,
+        failed: false,
+        duration: 42,
+        results: [{ title: 'generated smoke test', status: 'passed' }],
+      }),
     });
     const runId = await createRun('change-analysis');
 
@@ -274,11 +252,31 @@ describe('change-analysis workflow', () => {
       'fetchSource',
       'analyseChanges',
       'planTests',
+      'generateTests',
+      'validateTests',
+      'executeTests',
+      'finaliseReport',
     ]);
-    expect(steps[0]?.output).toMatchObject({ commitSha: 'abcdef1234567890' });
-    expect(steps[1]?.output).toMatchObject({ summary: 'Task service behaviour changed.' });
-    expect(steps[2]?.output).toMatchObject({
-      tests: [{ title: 'rejects invalid task status transition' }],
+
+    const plan = steps.find((step) => step.stepName === 'planTests')?.output as {
+      tests: unknown[];
+    };
+    const generated = steps.find((step) => step.stepName === 'generateTests')?.output as {
+      specSource: string;
+    };
+    expect(generated.specSource.match(/\btest\s*\(/g)).toHaveLength(plan.tests.length);
+    expect(steps.find((step) => step.stepName === 'validateTests')?.output).toEqual({
+      valid: true,
+    });
+    expect(steps.find((step) => step.stepName === 'executeTests')?.output).toMatchObject({
+      passed: true,
+      failed: false,
+    });
+    expect(steps.find((step) => step.stepName === 'finaliseReport')?.output).toMatchObject({
+      passed: true,
+      failed: false,
+      passedCount: 1,
+      failedCount: 0,
     });
 
     const operations = await db.query.aiOperationsTable.findMany({
@@ -286,6 +284,7 @@ describe('change-analysis workflow', () => {
     });
     expect(operations.map((operation) => operation.kind).sort()).toEqual([
       'change-analysis',
+      'test-generation',
       'test-planning',
     ]);
   });

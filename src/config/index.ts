@@ -6,6 +6,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
   DATABASE_URL: z.string().url().or(z.string().startsWith('postgres')),
+  PLAYWRIGHT_TARGET_URL: z.string().url(),
 
   ADMIN_API_TOKEN: z.string().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
 

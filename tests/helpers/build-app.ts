@@ -11,6 +11,7 @@ import { loadConfig } from '../../src/config/index.js';
 const TEST_DEFAULTS = {
   NODE_ENV: 'test',
   DATABASE_URL: `postgres://control_plane:cp_dev_password@localhost:${process.env.DB_HOST_PORT ?? '5432'}/control_plane`,
+  PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3000',
   ADMIN_API_TOKEN: 'test_only_admin_token_not_for_any_real_use',
   LOG_LEVEL: 'silent',
 } as const;

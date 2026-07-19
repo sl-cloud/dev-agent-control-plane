@@ -4,7 +4,7 @@ Control plane for receiving deployment webhooks, running analysis workflows, and
 
 ## Local Development
 
-Start the API, worker, and Postgres with Docker Compose. If ports `3000` or `5432` are already in use, choose alternate host ports:
+Start the API, worker, and Postgres with Docker Compose. Set `PLAYWRIGHT_TARGET_URL` in `.env` to the local or staging gateway URL that generated browser tests should visit. If ports `3000` or `5432` are already in use, choose alternate host ports:
 
 ```bash
 API_HOST_PORT=3300 DB_HOST_PORT=55432 docker compose up -d --build --wait
@@ -62,7 +62,12 @@ The response contains a `runId`. Refresh `/runs`, click the new row, and inspect
 - `fetchSource`: git diff, changed files, and selected file contents.
 - `analyseChanges`: structured change summary.
 - `planTests`: structured test plan.
+- `generateTests`: generated Playwright source.
+- `validateTests`: pass or the full validation error list.
+- `finaliseReport`: browser execution result with pass and fail counts.
 - Cost rows for the recorded operations.
+
+To confirm failed browser checks are visible without crashing the workflow, temporarily point `PLAYWRIGHT_TARGET_URL` at an unused local port, restart the worker, trigger another webhook, and inspect the run detail page. The workflow should complete the validation step and show a failed execution report.
 
 ## Useful Commands
 

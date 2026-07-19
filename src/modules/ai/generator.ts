@@ -1,6 +1,6 @@
 import type { AppConfig } from '../../config/index.js';
 import type { SourceContext } from '../scm/source-context.js';
-import type { ChangeAnalysis, TestPlan } from './schemas.js';
+import type { ChangeAnalysis, GeneratedSpec, TestPlan } from './schemas.js';
 import { createFakeGenerator } from './fake-generator.js';
 
 export interface AiOperationUsage {
@@ -18,6 +18,11 @@ export interface AiCallResult<T> {
 export interface AiGenerator {
   analyseChanges(context: SourceContext): Promise<AiCallResult<ChangeAnalysis>>;
   planTests(context: SourceContext, analysis: ChangeAnalysis): Promise<AiCallResult<TestPlan>>;
+  generateTests(
+    context: SourceContext,
+    analysis: ChangeAnalysis,
+    plan: TestPlan,
+  ): Promise<AiCallResult<GeneratedSpec>>;
 }
 
 export function createAiGenerator(config: AppConfig): AiGenerator {

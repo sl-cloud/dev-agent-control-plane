@@ -85,6 +85,52 @@ beforeAll(async () => {
     })
     .returning();
 
+  await app.db.insert(workflowStepsTable).values([
+    {
+      runId: publicRunId,
+      stepName: 'generateTests',
+      attempt: 1,
+      status: 'succeeded',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      output: { specSource: "import { test } from '@playwright/test';" },
+    },
+    {
+      runId: publicRunId,
+      stepName: 'validateTests',
+      attempt: 1,
+      status: 'succeeded',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      output: { valid: true },
+    },
+    {
+      runId: publicRunId,
+      stepName: 'executeTests',
+      attempt: 1,
+      status: 'succeeded',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      output: { passed: false, failed: true, duration: 12, results: [] },
+    },
+    {
+      runId: publicRunId,
+      stepName: 'finaliseReport',
+      attempt: 1,
+      status: 'succeeded',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      output: {
+        passed: false,
+        failed: true,
+        passedCount: 0,
+        failedCount: 1,
+        duration: 12,
+        results: [{ title: 'visible failure', status: 'failed', error: 'Expected text' }],
+      },
+    },
+  ]);
+
   await app.db.insert(aiOperationsTable).values({
     runId: publicRunId,
     stepId: step!.id,
@@ -194,6 +240,17 @@ describe('GET /api/v1/public/runs/:id', () => {
     expect(raw).not.toContain('webhookSecretRef');
     expect(raw).not.toContain('SUPER_SECRET_ENV_KEY');
     expect(raw).not.toContain('triggerDeliveryId');
+    expect(raw).not.toContain('/tmp/cp-playwright-');
+
+    const steps = body.steps as Array<{ name: string; output: unknown }>;
+    const report = steps.find((step) => step.name === 'finaliseReport')?.output;
+    expect(report).toMatchObject({
+      passed: false,
+      failed: true,
+      passedCount: 0,
+      failedCount: 1,
+      results: [{ title: 'visible failure', status: 'failed', error: 'Expected text' }],
+    });
   });
 
   it('does not expose runs for non-public projects', async () => {

@@ -11,6 +11,32 @@ function findStep(run: RunDetail, name: string): WorkflowStepSummary | undefined
   return run.steps.find((step) => step.name === name);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function outputRecord(step: WorkflowStepSummary | undefined): Record<string, unknown> | null {
+  return isRecord(step?.output) ? step.output : null;
+}
+
+function violationText(error: string | null): string[] {
+  if (!error) {
+    return [];
+  }
+  const marker = 'Generated spec validation failed: ';
+  if (!error.startsWith(marker)) {
+    return [error];
+  }
+  try {
+    const parsed = JSON.parse(error.slice(marker.length)) as { violations?: unknown };
+    return Array.isArray(parsed.violations)
+      ? parsed.violations.filter((violation): violation is string => typeof violation === 'string')
+      : [error];
+  } catch {
+    return [error];
+  }
+}
+
 function StepTimeline({ steps }: { steps: WorkflowStepSummary[] }) {
   return (
     <ol className="step-list">
@@ -46,6 +72,15 @@ export function RunDetailPage() {
   const analysis = useMemo(() => (run ? findStep(run, 'analyseChanges')?.output : null), [run]);
   const plan = useMemo(() => (run ? findStep(run, 'planTests')?.output : null), [run]);
   const source = useMemo(() => (run ? findStep(run, 'fetchSource')?.output : null), [run]);
+  const generatedSpec = useMemo(
+    () => outputRecord(run ? findStep(run, 'generateTests') : undefined)?.specSource,
+    [run],
+  );
+  const validationStep = useMemo(() => (run ? findStep(run, 'validateTests') : undefined), [run]);
+  const finalReport = useMemo(
+    () => outputRecord(run ? findStep(run, 'finaliseReport') : undefined),
+    [run],
+  );
 
   return (
     <div className="page">
@@ -84,6 +119,71 @@ export function RunDetailPage() {
           <section className="panel">
             <h2>Test Plan</h2>
             {plan ? <pre>{formatJson(plan)}</pre> : <p className="muted">No test plan recorded.</p>}
+          </section>
+
+          <section className="panel">
+            <h2>Generated Spec</h2>
+            {typeof generatedSpec === 'string' ? (
+              <pre>{generatedSpec}</pre>
+            ) : (
+              <p className="muted">No generated spec recorded.</p>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>Validation Result</h2>
+            {validationStep ? (
+              validationStep.status === 'succeeded' ? (
+                <p>Passed</p>
+              ) : (
+                <>
+                  <p className="error">Failed</p>
+                  <ul>
+                    {violationText(validationStep.error).map((violation) => (
+                      <li key={violation}>{violation}</li>
+                    ))}
+                  </ul>
+                </>
+              )
+            ) : (
+              <p className="muted">No validation result recorded.</p>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>Execution Result</h2>
+            {finalReport ? (
+              <>
+                <p>
+                  {Number(finalReport.failedCount ?? 0) > 0 ? 'Failed' : 'Passed'} / passed{' '}
+                  {String(finalReport.passedCount ?? 0)} / failed{' '}
+                  {String(finalReport.failedCount ?? 0)} / duration{' '}
+                  {String(finalReport.duration ?? 0)} ms
+                </p>
+                {Array.isArray(finalReport.results) && finalReport.results.length > 0 && (
+                  <table className="runs-table">
+                    <thead>
+                      <tr>
+                        <th>Test</th>
+                        <th>Status</th>
+                        <th>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {finalReport.results.filter(isRecord).map((result, index) => (
+                        <tr key={`${String(result.title ?? 'test')}-${index}`}>
+                          <td>{String(result.title ?? 'untitled test')}</td>
+                          <td>{String(result.status ?? 'unknown')}</td>
+                          <td>{result.error ? String(result.error) : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            ) : (
+              <p className="muted">No execution report recorded.</p>
+            )}
           </section>
 
           <section className="panel">

@@ -1,7 +1,7 @@
 import type { AppConfig } from '../../config/index.js';
 import type { SourceContext } from '../scm/source-context.js';
 import type { AiCallResult, AiGenerator } from './generator.js';
-import type { ChangeAnalysis, TestPlan } from './schemas.js';
+import type { ChangeAnalysis, GeneratedSpec, TestPlan } from './schemas.js';
 
 function classifyKind(path: string): ChangeAnalysis['behaviouralChanges'][number]['kind'] {
   if (path.includes('/auth/') || path.includes('jwt') || path.includes('password')) {
@@ -21,6 +21,28 @@ function classifyKind(path: string): ChangeAnalysis['behaviouralChanges'][number
 
 function usage(model: string): AiCallResult<never>['usage'] {
   return { model, promptTokens: 0, completionTokens: 0, costUsd: 0 };
+}
+
+function testTitle(title: string, index: number): string {
+  const cleanTitle = title.trim() || `generated smoke test ${index + 1}`;
+  return JSON.stringify(cleanTitle);
+}
+
+function generatedSpecSource(plan: TestPlan): string {
+  const tests = plan.tests
+    .map(
+      (test, index) => `
+test(${testTitle(test.title, index)}, async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.ok()).toBe(true);
+  await expect(page).toHaveTitle(/.+/);
+});`,
+    )
+    .join('\n');
+
+  return `import { expect, test } from '@playwright/test';
+${tests}
+`;
 }
 
 export function createFakeGenerator(config: AppConfig): AiGenerator {
@@ -71,6 +93,14 @@ export function createFakeGenerator(config: AppConfig): AiGenerator {
       }));
 
       return { output: { tests }, usage: usage(model) };
+    },
+
+    async generateTests(
+      _context: SourceContext,
+      _analysis: ChangeAnalysis,
+      plan: TestPlan,
+    ): Promise<AiCallResult<GeneratedSpec>> {
+      return { output: { specSource: generatedSpecSource(plan) }, usage: usage(model) };
     },
   };
 }

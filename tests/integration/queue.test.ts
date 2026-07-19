@@ -16,6 +16,7 @@ import { defineWorkflow, resetWorkflowRegistry } from '../../src/modules/runs/wo
 // precedence, same pattern as tests/helpers/build-app.ts.
 const TEST_DEFAULTS = {
   DATABASE_URL: `postgres://control_plane:cp_dev_password@localhost:${process.env.DB_HOST_PORT ?? '5432'}/control_plane`,
+  PLAYWRIGHT_TARGET_URL: 'http://127.0.0.1:3000',
   ADMIN_API_TOKEN: 'x'.repeat(20),
 };
 
