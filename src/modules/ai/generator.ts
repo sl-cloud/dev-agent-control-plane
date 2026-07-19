@@ -3,6 +3,7 @@ import type { SourceContext } from '../scm/source-context.js';
 import type { ChangeAnalysis, GeneratedSpec, TestPlan } from './schemas.js';
 import { createFakeGenerator } from './fake-generator.js';
 import { createOpenAiGenerator } from './openai-generator.js';
+import { createOpencodeGenerator } from './opencode-generator.js';
 
 export interface AiOperationUsage {
   model: string;
@@ -31,8 +32,7 @@ export function createAiGenerator(config: AppConfig): AiGenerator {
     case 'openai':
       return createOpenAiGenerator(config);
     case 'opencode':
-      // Task 5 replaces this with createOpencodeGenerator(config).
-      return createFakeGenerator(config);
+      return createOpencodeGenerator(config);
     case 'fake':
     default:
       return createFakeGenerator(config);
