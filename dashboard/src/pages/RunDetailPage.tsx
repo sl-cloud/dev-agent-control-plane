@@ -9,7 +9,15 @@ function formatJson(value: unknown): string {
 }
 
 function findStep(run: RunDetail, name: string): WorkflowStepSummary | undefined {
-  return run.steps.find((step) => step.name === name);
+  const attempts = run.steps.filter((step) => step.name === name);
+  const succeeded = attempts.filter((step) => step.status === 'succeeded');
+  const candidates = succeeded.length > 0 ? succeeded : attempts;
+  return candidates.reduce<WorkflowStepSummary | undefined>((latest, step) => {
+    if (!latest || step.attempt > latest.attempt) {
+      return step;
+    }
+    return latest;
+  }, undefined);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
