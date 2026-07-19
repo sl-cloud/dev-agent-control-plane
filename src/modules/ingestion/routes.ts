@@ -84,7 +84,7 @@ export async function ingestionRoutes(app: FastifyInstance): Promise<void> {
       .insert(agentRunsTable)
       .values({
         projectId: resolved.project.id,
-        workflowName: 'stub',
+        workflowName: 'change-analysis',
         status: 'queued',
         triggerDeliveryId: deliveryId,
         commitSha: payload.commitSha,

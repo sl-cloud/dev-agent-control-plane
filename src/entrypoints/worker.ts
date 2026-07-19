@@ -4,20 +4,19 @@ import { createDbPool } from '../db/client.js';
 import { createDb } from '../db/index.js';
 import { buildLoggerOptions } from '../lib/logger.js';
 import { createBoss, startWorkflowWorker } from '../modules/runs/queue.js';
-import { stubWorkflow } from '../modules/runs/workflow-runner.js';
+import { registerChangeAnalysisWorkflow } from '../modules/analysis/workflow.js';
 import pino from 'pino';
 
 /**
  * The worker process consumes the pg-boss queue and executes workflow steps.
- * It never serves HTTP. No `runner` process split yet: that machinery lands
- * later. Importing `stubWorkflow` here registers it in the shared in-process
- * workflow registry before the queue starts consuming jobs.
+ * It never serves HTTP. Workflow registration stays here so the API process
+ * only handles ingestion and read-model duties.
  */
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = pino(buildLoggerOptions(config));
 
-  void stubWorkflow;
+  registerChangeAnalysisWorkflow(config);
 
   const pool = createDbPool(config);
   const db = createDb(pool);

@@ -5,6 +5,7 @@ import { agentRunsTable, workflowStepsTable, type AgentRun } from '../../db/sche
 export interface WorkflowStepContext {
   run: AgentRun;
   db: Db;
+  stepId: string;
 }
 
 export interface WorkflowStepDefinition {
@@ -122,7 +123,7 @@ export async function executeRun(db: Db, runId: string): Promise<void> {
       }
 
       try {
-        const output = (await step.run({ run, db })) ?? null;
+        const output = (await step.run({ run, db, stepId: stepRow.id })) ?? null;
         await db
           .update(workflowStepsTable)
           .set({ status: 'succeeded', finishedAt: new Date(), output })

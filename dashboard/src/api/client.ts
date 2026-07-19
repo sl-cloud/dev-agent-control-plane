@@ -19,6 +19,31 @@ export interface RunSummary {
   updatedAt: string;
 }
 
+export interface WorkflowStepSummary {
+  name: string;
+  attempt: number;
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  startedAt: string | null;
+  finishedAt: string | null;
+  output: unknown;
+  error: string | null;
+}
+
+export interface AiOperationSummary {
+  kind: string;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  costUsd: string | null;
+  createdAt: string;
+}
+
+export interface RunDetail extends RunSummary {
+  steps: WorkflowStepSummary[];
+  aiOperations: AiOperationSummary[];
+  totalCostUsd: string;
+}
+
 export interface OverviewResponse {
   projects: ProjectSummary[];
 }
@@ -51,4 +76,8 @@ export function fetchRuns(params: { project?: string; page?: number } = {}): Pro
   }
   const qs = search.toString();
   return getJson<RunsResponse>(`/api/v1/public/runs${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchRun(id: string): Promise<RunDetail> {
+  return getJson<RunDetail>(`/api/v1/public/runs/${id}`);
 }

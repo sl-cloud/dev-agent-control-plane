@@ -101,3 +101,48 @@ body {
 .status-cancelled {
   background: #f39c1233;
 }
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel {
+  border-top: 1px solid #8882;
+  padding: 1rem 0;
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.step-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.step-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #8882;
+}
+
+.step-name {
+  font-weight: 600;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 1px solid #8882;
+  border-radius: 0.25rem;
+  background: #8881;
+  font-size: 0.85rem;
+}

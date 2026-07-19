@@ -3,13 +3,21 @@ import { eq } from 'drizzle-orm';
 import { loadConfig } from '../../src/config/index.js';
 import { createDbPool, type DbPool } from '../../src/db/client.js';
 import { createDb, type Db } from '../../src/db/index.js';
-import { agentRunsTable, projectsTable, workflowStepsTable } from '../../src/db/schema.js';
+import {
+  agentRunsTable,
+  aiOperationsTable,
+  projectsTable,
+  workflowStepsTable,
+} from '../../src/db/schema.js';
 import {
   defineWorkflow,
   executeRun,
   prepareRetry,
   resetWorkflowRegistry,
 } from '../../src/modules/runs/workflow-runner.js';
+import { registerChangeAnalysisWorkflow } from '../../src/modules/analysis/workflow.js';
+import type { AiGenerator } from '../../src/modules/ai/generator.js';
+import type { SourceContext } from '../../src/modules/scm/source-context.js';
 
 // Fallback only; real env vars (e.g. CI's DATABASE_URL) always take
 // precedence, same pattern as tests/helpers/build-app.ts.
@@ -194,5 +202,91 @@ describe('executeRun', () => {
     expect(calls).toEqual(['a']);
     const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
     expect(run?.status).toBe('cancelled');
+  });
+});
+
+describe('change-analysis workflow', () => {
+  it('persists source context, analysis, plan, and AI ledger rows', async () => {
+    const sourceContext: SourceContext = {
+      projectSlug: 'api-test-gateway',
+      repository: 'sl-cloud/api-test-gateway',
+      repositoryUrl: 'https://github.com/sl-cloud/api-test-gateway.git',
+      branch: 'main',
+      commitSha: 'abcdef1234567890',
+      baseSha: '1234567890abcdef',
+      environment: 'staging',
+      ciRunUrl: 'https://example.test/actions/runs/1',
+      diffStat: 'src/modules/tasks/service.ts | 2 +-',
+      diff: 'diff --git a/src/modules/tasks/service.ts b/src/modules/tasks/service.ts',
+      changedFiles: ['src/modules/tasks/service.ts'],
+      fileContents: [
+        { path: 'src/modules/tasks/service.ts', content: 'export const changed = true;' },
+      ],
+    };
+    const fakeGenerator: AiGenerator = {
+      analyseChanges: async () => ({
+        output: {
+          summary: 'Task service behaviour changed.',
+          behaviouralChanges: [
+            {
+              description: 'Task status validation changed.',
+              kind: 'business_rule_changed',
+              files: ['src/modules/tasks/service.ts'],
+              risk: 'medium',
+            },
+          ],
+          securitySensitive: false,
+        },
+        usage: { model: 'fake-test', promptTokens: 10, completionTokens: 5, costUsd: 0.000175 },
+      }),
+      planTests: async () => ({
+        output: {
+          tests: [
+            {
+              title: 'rejects invalid task status transition',
+              kind: 'business_rule',
+              reasoning: 'The changed service owns task status rules.',
+              priority: 'must',
+              coveredByExisting: false,
+            },
+          ],
+        },
+        usage: { model: 'fake-test', promptTokens: 12, completionTokens: 7, costUsd: 0.000235 },
+      }),
+    };
+
+    registerChangeAnalysisWorkflow(loadConfig({ ...TEST_DEFAULTS, ...process.env }), {
+      sourceContextBuilder: async () => sourceContext,
+      aiGenerator: fakeGenerator,
+    });
+    const runId = await createRun('change-analysis');
+
+    await executeRun(db, runId);
+
+    const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
+    expect(run?.status).toBe('succeeded');
+
+    const steps = await db.query.workflowStepsTable.findMany({
+      where: eq(workflowStepsTable.runId, runId),
+      orderBy: (table, { asc }) => asc(table.startedAt),
+    });
+    expect(steps.map((step) => step.stepName)).toEqual([
+      'fetchSource',
+      'analyseChanges',
+      'planTests',
+    ]);
+    expect(steps[0]?.output).toMatchObject({ commitSha: 'abcdef1234567890' });
+    expect(steps[1]?.output).toMatchObject({ summary: 'Task service behaviour changed.' });
+    expect(steps[2]?.output).toMatchObject({
+      tests: [{ title: 'rejects invalid task status transition' }],
+    });
+
+    const operations = await db.query.aiOperationsTable.findMany({
+      where: eq(aiOperationsTable.runId, runId),
+    });
+    expect(operations.map((operation) => operation.kind).sort()).toEqual([
+      'change-analysis',
+      'test-planning',
+    ]);
   });
 });

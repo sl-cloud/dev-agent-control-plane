@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { OverviewPage } from './pages/OverviewPage.js';
 import { RunsPage } from './pages/RunsPage.js';
+import { RunDetailPage } from './pages/RunDetailPage.js';
 import './styles.css';
 
 const rootEl = document.getElementById('root');
@@ -17,6 +18,7 @@ ReactDOM.createRoot(rootEl).render(
         <Route path="/" element={<Navigate to="/overview" replace />} />
         <Route path="/overview" element={<OverviewPage />} />
         <Route path="/runs" element={<RunsPage />} />
+        <Route path="/runs/:id" element={<RunDetailPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

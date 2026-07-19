@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Nav } from '../Nav.js';
 import { fetchRuns, type RunSummary } from '../api/client.js';
 
@@ -57,7 +57,9 @@ export function RunsPage() {
           <tbody>
             {runs.map((run) => (
               <tr key={run.id}>
-                <td>{run.projectSlug}</td>
+                <td>
+                  <Link to={`/runs/${run.id}`}>{run.projectSlug}</Link>
+                </td>
                 <td>{run.workflowName}</td>
                 <td>
                   <span className={`status status-${run.status}`}>{run.status}</span>

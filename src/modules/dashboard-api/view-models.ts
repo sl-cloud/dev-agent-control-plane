@@ -1,9 +1,4 @@
-import type { AgentRun, Project } from '../../db/schema.js';
-
-// Whitelisted view-model builders: never spread a raw DB row into a
-// response. Each field is named explicitly so a future column added to
-// `projects` or `agent_runs` (e.g. webhookSecretRef, a future raw payload
-// column) cannot leak onto a public endpoint just by being present on the row.
+import type { AgentRun, AiOperation, Project, WorkflowStep } from '../../db/schema.js';
 
 export interface ProjectSummary {
   slug: string;
@@ -38,5 +33,71 @@ export function toRunSummary(run: AgentRun, projectSlug: string): RunSummary {
     branch: run.branch,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
+  };
+}
+
+export interface WorkflowStepSummary {
+  name: string;
+  attempt: number;
+  status: WorkflowStep['status'];
+  startedAt: string | null;
+  finishedAt: string | null;
+  output: unknown;
+  error: string | null;
+}
+
+export interface AiOperationSummary {
+  kind: string;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  costUsd: string | null;
+  createdAt: string;
+}
+
+export interface RunDetail extends RunSummary {
+  steps: WorkflowStepSummary[];
+  aiOperations: AiOperationSummary[];
+  totalCostUsd: string;
+}
+
+export function toWorkflowStepSummary(step: WorkflowStep): WorkflowStepSummary {
+  return {
+    name: step.stepName,
+    attempt: step.attempt,
+    status: step.status,
+    startedAt: step.startedAt?.toISOString() ?? null,
+    finishedAt: step.finishedAt?.toISOString() ?? null,
+    output: step.output ?? null,
+    error: step.error,
+  };
+}
+
+export function toAiOperationSummary(operation: AiOperation): AiOperationSummary {
+  return {
+    kind: operation.kind,
+    model: operation.model,
+    promptTokens: operation.promptTokens,
+    completionTokens: operation.completionTokens,
+    costUsd: operation.costUsd,
+    createdAt: operation.createdAt.toISOString(),
+  };
+}
+
+export function toRunDetail(params: {
+  run: AgentRun;
+  projectSlug: string;
+  steps: WorkflowStep[];
+  aiOperations: AiOperation[];
+}): RunDetail {
+  const totalCost = params.aiOperations.reduce(
+    (sum, operation) => sum + Number.parseFloat(operation.costUsd ?? '0'),
+    0,
+  );
+  return {
+    ...toRunSummary(params.run, params.projectSlug),
+    steps: params.steps.map(toWorkflowStepSummary),
+    aiOperations: params.aiOperations.map(toAiOperationSummary),
+    totalCostUsd: totalCost.toFixed(6),
   };
 }

@@ -1,7 +1,12 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { agentRunsTable, projectsTable } from '../../db/schema.js';
-import { toProjectSummary, toRunSummary } from './view-models.js';
+import {
+  agentRunsTable,
+  aiOperationsTable,
+  projectsTable,
+  workflowStepsTable,
+} from '../../db/schema.js';
+import { toProjectSummary, toRunDetail, toRunSummary } from './view-models.js';
 
 const PAGE_SIZE = 20;
 
@@ -12,6 +17,34 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { projects: projects.map(toProjectSummary) };
+  });
+
+  app.get('/runs/:id', async (request, reply) => {
+    const params = request.params as { id: string };
+    const run = await app.db.query.agentRunsTable.findFirst({
+      where: and(eq(agentRunsTable.id, params.id), eq(agentRunsTable.isPublicOnDashboard, true)),
+    });
+    if (!run) {
+      return reply.status(404).send({ error: 'run not found' });
+    }
+
+    const project = await app.db.query.projectsTable.findFirst({
+      where: and(eq(projectsTable.id, run.projectId), eq(projectsTable.isPublicOnDashboard, true)),
+    });
+    if (!project) {
+      return reply.status(404).send({ error: 'run not found' });
+    }
+
+    const steps = await app.db.query.workflowStepsTable.findMany({
+      where: eq(workflowStepsTable.runId, run.id),
+      orderBy: [asc(workflowStepsTable.startedAt), asc(workflowStepsTable.attempt)],
+    });
+    const aiOperations = await app.db.query.aiOperationsTable.findMany({
+      where: eq(aiOperationsTable.runId, run.id),
+      orderBy: [asc(aiOperationsTable.createdAt)],
+    });
+
+    return toRunDetail({ run, projectSlug: project.slug, steps, aiOperations });
   });
 
   app.get('/runs', async (request, reply) => {

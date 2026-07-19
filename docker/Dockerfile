@@ -14,6 +14,7 @@ RUN npm install -g npm@11 && npm ci
 
 # ---- build: compile TypeScript ----
 FROM node:20-alpine AS build
+RUN apk add --no-cache git
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -31,7 +32,7 @@ ARG COMMIT_SHA=unknown
 ENV NODE_ENV=production \
     COMMIT_SHA=${COMMIT_SHA}
 
-RUN addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache git && addgroup -S app && adduser -S app -G app
 WORKDIR /app
 
 COPY --from=prod-deps /app/node_modules ./node_modules

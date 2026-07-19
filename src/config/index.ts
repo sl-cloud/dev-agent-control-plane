@@ -10,6 +10,14 @@ const envSchema = z.object({
   ADMIN_API_TOKEN: z.string().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
 
   COMMIT_SHA: z.string().default('dev'),
+
+  AI_PROVIDER: z.literal('fake').default('fake'),
+  AI_MODEL_DEFAULT: z.string().default('fake-planner-v1'),
+  AI_MODEL_CHANGE_ANALYSIS: z.string().optional(),
+  AI_MODEL_TEST_PLANNING: z.string().optional(),
+  AI_RUN_BUDGET_USD: z.coerce.number().positive().default(1),
+  AI_INPUT_COST_PER_MTOK: z.coerce.number().nonnegative().default(5),
+  AI_OUTPUT_COST_PER_MTOK: z.coerce.number().nonnegative().default(25),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
