@@ -69,6 +69,26 @@ The response contains a `runId`. Refresh `/runs`, click the new row, and inspect
 
 To confirm failed browser checks are visible without crashing the workflow, temporarily point `PLAYWRIGHT_TARGET_URL` at an unused local port, restart the worker, trigger another webhook, and inspect the run detail page. The workflow should complete the validation step and show a failed execution report.
 
+### Running with a real provider
+
+By default `AI_PROVIDER=fake` and the pipeline needs no credentials. To use
+a real model instead:
+
+**OpenAI**: set `AI_PROVIDER=openai` and `OPENAI_API_KEY` in `.env`, then
+restart the worker (`docker compose restart worker`). Trigger a webhook as
+above; the run detail page's Change Analysis, Test Plan, and Generated Spec
+sections should show real (non-templated) content, and the AI operations
+cost footer should be non-zero.
+
+**opencode**: run `opencode auth login` on your host machine first (this
+opens a browser for OAuth). Then set `AI_PROVIDER=opencode` in `.env`,
+restart the worker, and trigger a webhook as above. Cost will show as zero
+(opencode doesn't reliably report token usage) but the generated content
+should still be real. If the worker logs `opencode is not authenticated`,
+re-run `opencode auth login` and confirm the credential path matches the
+compose bind mount in `docker-compose.yml`. This is a local-dev setup only
+for now; staging doesn't have a way to deliver opencode credentials yet.
+
 ## Useful Commands
 
 Run these inside the healthy API container:

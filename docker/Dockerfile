@@ -44,7 +44,8 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 COPY package.json ./
 
-RUN npx playwright install --with-deps chromium \
+RUN npm install -g opencode-ai \
+  && npx playwright install --with-deps chromium \
   && groupadd --system app \
   && useradd --system --gid app --home-dir /home/app --create-home app
 
