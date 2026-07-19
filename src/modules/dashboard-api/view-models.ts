@@ -51,14 +51,12 @@ export interface AiOperationSummary {
   model: string;
   promptTokens: number | null;
   completionTokens: number | null;
-  costUsd: string | null;
   createdAt: string;
 }
 
 export interface RunDetail extends RunSummary {
   steps: WorkflowStepSummary[];
   aiOperations: AiOperationSummary[];
-  totalCostUsd: string;
 }
 
 export function toWorkflowStepSummary(step: WorkflowStep): WorkflowStepSummary {
@@ -79,7 +77,6 @@ export function toAiOperationSummary(operation: AiOperation): AiOperationSummary
     model: operation.model,
     promptTokens: operation.promptTokens,
     completionTokens: operation.completionTokens,
-    costUsd: operation.costUsd,
     createdAt: operation.createdAt.toISOString(),
   };
 }
@@ -90,14 +87,9 @@ export function toRunDetail(params: {
   steps: WorkflowStep[];
   aiOperations: AiOperation[];
 }): RunDetail {
-  const totalCost = params.aiOperations.reduce(
-    (sum, operation) => sum + Number.parseFloat(operation.costUsd ?? '0'),
-    0,
-  );
   return {
     ...toRunSummary(params.run, params.projectSlug),
     steps: params.steps.map(toWorkflowStepSummary),
     aiOperations: params.aiOperations.map(toAiOperationSummary),
-    totalCostUsd: totalCost.toFixed(6),
   };
 }

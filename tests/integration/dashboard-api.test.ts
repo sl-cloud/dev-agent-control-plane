@@ -232,14 +232,15 @@ describe('GET /api/v1/public/runs/:id', () => {
     expect(body.id).toBe(publicRunId);
     expect(body.projectSlug).toBe(publicProjectSlug);
     expect(body.workflowName).toBe('change-analysis');
-    expect(body.totalCostUsd).toBe('0.000175');
     expect(Array.isArray(body.steps)).toBe(true);
     expect(Array.isArray(body.aiOperations)).toBe(true);
+    expect(body).not.toHaveProperty('totalCostUsd');
 
     const raw = JSON.stringify(body);
     expect(raw).not.toContain('webhookSecretRef');
     expect(raw).not.toContain('SUPER_SECRET_ENV_KEY');
     expect(raw).not.toContain('triggerDeliveryId');
+    expect(raw).not.toContain('costUsd');
     expect(raw).not.toContain('/tmp/cp-playwright-');
 
     const steps = body.steps as Array<{ name: string; output: unknown }>;

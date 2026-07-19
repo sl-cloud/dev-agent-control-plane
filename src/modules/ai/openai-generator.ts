@@ -6,15 +6,20 @@ import { calculateCostUsd } from './cost.js';
 import { changeAnalysisPrompt } from './prompts/change-analysis.v1.js';
 import { testPlanPrompt } from './prompts/test-plan.v1.js';
 import { testGenerationPrompt } from './prompts/test-generation.v1.js';
+import { testFailureClassificationPrompt } from './prompts/test-failure-classification.v1.js';
+import { testRepairPrompt } from './prompts/test-repair.v1.js';
 import {
   ChangeAnalysisSchema,
   TestPlanSchema,
   GeneratedSpecSchema,
+  TestFailureClassificationSchema,
   CHANGE_ANALYSIS_JSON_SCHEMA,
   TEST_PLAN_JSON_SCHEMA,
   GENERATED_SPEC_JSON_SCHEMA,
+  TEST_FAILURE_CLASSIFICATION_JSON_SCHEMA,
   type ChangeAnalysis,
   type GeneratedSpec,
+  type TestFailureClassification,
   type TestPlan,
 } from './schemas.js';
 
@@ -44,7 +49,10 @@ async function call<T>(
     ],
     response_format: useJsonObjectMode
       ? { type: 'json_object' }
-      : { type: 'json_schema', json_schema: { name: schemaName, schema: jsonSchema, strict: true } },
+      : {
+          type: 'json_schema',
+          json_schema: { name: schemaName, schema: jsonSchema, strict: true },
+        },
   });
 
   const content = response.choices[0]?.message?.content;
@@ -123,6 +131,34 @@ export function createOpenAiGenerator(config: AppConfig, client?: OpenAiClient):
         testGenerationPrompt.system,
         testGenerationPrompt.render(context, analysis, plan),
         'generated_spec',
+        GENERATED_SPEC_JSON_SCHEMA,
+        (raw) => GeneratedSpecSchema.parse(raw),
+        config,
+        isDeepseek,
+      );
+    },
+
+    async classifyTestFailure(params): Promise<AiCallResult<TestFailureClassification>> {
+      return call(
+        openai,
+        generationModel,
+        testFailureClassificationPrompt.system,
+        testFailureClassificationPrompt.render(params),
+        'test_failure_classification',
+        TEST_FAILURE_CLASSIFICATION_JSON_SCHEMA,
+        (raw) => TestFailureClassificationSchema.parse(raw),
+        config,
+        isDeepseek,
+      );
+    },
+
+    async repairTests(params): Promise<AiCallResult<GeneratedSpec>> {
+      return call(
+        openai,
+        generationModel,
+        testRepairPrompt.system,
+        testRepairPrompt.render(params),
+        'repaired_generated_spec',
         GENERATED_SPEC_JSON_SCHEMA,
         (raw) => GeneratedSpecSchema.parse(raw),
         config,

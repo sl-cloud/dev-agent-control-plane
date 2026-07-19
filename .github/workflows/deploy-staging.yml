@@ -45,8 +45,21 @@ jobs:
             cd ~/dev-agent-control-plane
             git fetch origin main
             git reset --hard ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-            sed -i '/^IMAGE_TAG=/d' .env
-            echo "IMAGE_TAG=${{ steps.image.outputs.tag }}" >> .env
+            update_env() {
+              key="$1"
+              value="$2"
+              sed -i "/^${key}=/d" .env
+              if [ -n "$value" ]; then
+                printf '%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+            update_env IMAGE_TAG "${{ steps.image.outputs.tag }}"
+            update_env AI_PROVIDER "${{ vars.AI_PROVIDER }}"
+            update_env AI_MODEL_DEFAULT "${{ vars.AI_MODEL_DEFAULT }}"
+            update_env AI_MODEL_CHANGE_ANALYSIS "${{ vars.AI_MODEL_CHANGE_ANALYSIS }}"
+            update_env AI_MODEL_TEST_PLANNING "${{ vars.AI_MODEL_TEST_PLANNING }}"
+            update_env DEEPSEEK_API_KEY "${{ secrets.DEEPSEEK_API_KEY }}"
+            update_env OPENAI_API_KEY "${{ secrets.OPENAI_API_KEY }}"
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm migrate
             docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --wait api worker db proxy

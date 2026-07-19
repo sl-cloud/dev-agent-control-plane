@@ -5,6 +5,7 @@ import { createDbPool, type DbPool } from '../../src/db/client.js';
 import { createDb, type Db } from '../../src/db/index.js';
 import {
   agentRunsTable,
+  acceptedGeneratedTestsTable,
   aiOperationsTable,
   projectsTable,
   workflowStepsTable,
@@ -17,6 +18,7 @@ import {
 } from '../../src/modules/runs/workflow-runner.js';
 import { registerChangeAnalysisWorkflow } from '../../src/modules/analysis/workflow.js';
 import { createFakeGenerator } from '../../src/modules/ai/fake-generator.js';
+import type { AiGenerator } from '../../src/modules/ai/generator.js';
 import type { SourceContext } from '../../src/modules/scm/source-context.js';
 
 // Fallback only; real env vars (e.g. CI's DATABASE_URL) always take
@@ -41,6 +43,30 @@ async function createRun(workflowName: string): Promise<string> {
     })
     .returning();
   return run!.id;
+}
+
+function sourceContextFixture(): SourceContext {
+  return {
+    projectSlug: 'api-test-gateway',
+    repository: 'sl-cloud/api-test-gateway',
+    repositoryUrl: 'https://github.com/sl-cloud/api-test-gateway.git',
+    branch: 'main',
+    commitSha: 'abcdef1234567890',
+    baseSha: '1234567890abcdef',
+    environment: 'staging',
+    ciRunUrl: 'https://example.test/actions/runs/1',
+    diffStat: 'src/modules/tasks/service.ts | 2 +-\nsrc/modules/tasks/routes.ts | 2 +-',
+    diff: 'diff --git a/src/modules/tasks/service.ts b/src/modules/tasks/service.ts',
+    changedFiles: ['src/modules/tasks/service.ts', 'src/modules/tasks/routes.ts'],
+    fileContents: [
+      { path: 'src/modules/tasks/service.ts', content: 'export const changed = true;' },
+      { path: 'src/modules/tasks/routes.ts', content: 'export const route = true;' },
+    ],
+    contractFiles: [
+      { path: 'src/modules/tasks/routes.ts', content: "server.get('/api/v1/tasks/:id')" },
+    ],
+    existingGeneratedTests: [],
+  };
 }
 
 beforeAll(async () => {
@@ -208,23 +234,7 @@ describe('executeRun', () => {
 
 describe('change-analysis workflow', () => {
   it('persists source context, generated spec, execution report, and AI ledger rows', async () => {
-    const sourceContext: SourceContext = {
-      projectSlug: 'api-test-gateway',
-      repository: 'sl-cloud/api-test-gateway',
-      repositoryUrl: 'https://github.com/sl-cloud/api-test-gateway.git',
-      branch: 'main',
-      commitSha: 'abcdef1234567890',
-      baseSha: '1234567890abcdef',
-      environment: 'staging',
-      ciRunUrl: 'https://example.test/actions/runs/1',
-      diffStat: 'src/modules/tasks/service.ts | 2 +-\nsrc/modules/tasks/routes.ts | 2 +-',
-      diff: 'diff --git a/src/modules/tasks/service.ts b/src/modules/tasks/service.ts',
-      changedFiles: ['src/modules/tasks/service.ts', 'src/modules/tasks/routes.ts'],
-      fileContents: [
-        { path: 'src/modules/tasks/service.ts', content: 'export const changed = true;' },
-        { path: 'src/modules/tasks/routes.ts', content: 'export const route = true;' },
-      ],
-    };
+    const sourceContext = sourceContextFixture();
     const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
 
     registerChangeAnalysisWorkflow(config, {
@@ -255,7 +265,9 @@ describe('change-analysis workflow', () => {
       'generateTests',
       'validateTests',
       'executeTests',
+      'repairTests',
       'finaliseReport',
+      'persistAcceptedTests',
     ]);
 
     const plan = steps.find((step) => step.stepName === 'planTests')?.output as {
@@ -272,11 +284,21 @@ describe('change-analysis workflow', () => {
       passed: true,
       failed: false,
     });
+    expect(steps.find((step) => step.stepName === 'repairTests')?.output).toMatchObject({
+      attempts: [],
+      stopReason: 'original_passed',
+    });
     expect(steps.find((step) => step.stepName === 'finaliseReport')?.output).toMatchObject({
       passed: true,
       failed: false,
       passedCount: 1,
       failedCount: 0,
+      repaired: false,
+    });
+    expect(steps.find((step) => step.stepName === 'persistAcceptedTests')?.output).toMatchObject({
+      persisted: true,
+      source: 'original',
+      passedCount: 1,
     });
 
     const operations = await db.query.aiOperationsTable.findMany({
@@ -287,5 +309,213 @@ describe('change-analysis workflow', () => {
       'test-generation',
       'test-planning',
     ]);
+
+    const accepted = await db.query.acceptedGeneratedTestsTable.findMany({
+      where: eq(acceptedGeneratedTestsTable.runId, runId),
+    });
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.specSource).toBe(generated.specSource);
+  });
+
+  it('repairs a generated-test failure and persists the repaired passing spec', async () => {
+    const sourceContext = sourceContextFixture();
+    const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+    const usage = { model: 'test-model', promptTokens: 1, completionTokens: 1, costUsd: 0 };
+    const generator: AiGenerator = {
+      async analyseChanges() {
+        return {
+          output: { summary: 'summary', behaviouralChanges: [], securitySensitive: false },
+          usage,
+        };
+      },
+      async planTests() {
+        return {
+          output: {
+            tests: [
+              {
+                title: 'repairable test',
+                kind: 'regression',
+                reasoning: 'prove repair loop',
+                priority: 'must',
+                coveredByExisting: false,
+              },
+            ],
+          },
+          usage,
+        };
+      },
+      async generateTests() {
+        return {
+          output: {
+            specSource:
+              "import { test } from '@playwright/test';\ntest('bad generated test', async () => {});",
+          },
+          usage,
+        };
+      },
+      async classifyTestFailure() {
+        return {
+          output: {
+            category: 'generated_test_error',
+            repairRecommended: true,
+            summary: 'The generated spec assertion is wrong.',
+            evidence: ['The route contract does not support the failed assertion.'],
+          },
+          usage,
+        };
+      },
+      async repairTests() {
+        return {
+          output: {
+            specSource:
+              "import { test } from '@playwright/test';\ntest('repaired generated test', async () => {});",
+          },
+          usage,
+        };
+      },
+    };
+
+    registerChangeAnalysisWorkflow(config, {
+      sourceContextBuilder: async () => sourceContext,
+      aiGenerator: generator,
+      testExecutor: async (specSource) =>
+        specSource.includes('repaired')
+          ? {
+              passed: true,
+              failed: false,
+              duration: 15,
+              results: [{ title: 'repaired generated test', status: 'passed' }],
+            }
+          : {
+              passed: false,
+              failed: true,
+              duration: 10,
+              results: [
+                {
+                  title: 'bad generated test',
+                  status: 'failed',
+                  error: 'Expected 200 received 404',
+                },
+              ],
+            },
+    });
+    const runId = await createRun('change-analysis');
+
+    await executeRun(db, runId);
+
+    const steps = await db.query.workflowStepsTable.findMany({
+      where: eq(workflowStepsTable.runId, runId),
+    });
+    expect(steps.find((step) => step.stepName === 'repairTests')?.output).toMatchObject({
+      stopReason: 'repair_succeeded',
+      attempts: [expect.objectContaining({ attempt: 1 })],
+    });
+    expect(steps.find((step) => step.stepName === 'finaliseReport')?.output).toMatchObject({
+      passed: true,
+      failed: false,
+      repaired: true,
+      passedCount: 1,
+      failedCount: 0,
+    });
+    expect(steps.find((step) => step.stepName === 'persistAcceptedTests')?.output).toMatchObject({
+      persisted: true,
+      source: 'repaired',
+    });
+
+    const accepted = await db.query.acceptedGeneratedTestsTable.findMany({
+      where: eq(acceptedGeneratedTestsTable.runId, runId),
+    });
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.specSource).toContain('repaired generated test');
+  });
+
+  it('stops generated-test repairs after five failed attempts', async () => {
+    const sourceContext = sourceContextFixture();
+    const config = loadConfig({ ...TEST_DEFAULTS, ...process.env });
+    const usage = { model: 'test-model', promptTokens: 1, completionTokens: 1, costUsd: 0 };
+    let repairCalls = 0;
+    const generator: AiGenerator = {
+      async analyseChanges() {
+        return {
+          output: { summary: 'summary', behaviouralChanges: [], securitySensitive: false },
+          usage,
+        };
+      },
+      async planTests() {
+        return { output: { tests: [] }, usage };
+      },
+      async generateTests() {
+        return {
+          output: {
+            specSource:
+              "import { test } from '@playwright/test';\ntest('still failing', async () => {});",
+          },
+          usage,
+        };
+      },
+      async classifyTestFailure() {
+        return {
+          output: {
+            category: 'generated_test_error',
+            repairRecommended: true,
+            summary: 'The generated spec is still wrong.',
+            evidence: ['The assertion still contradicts the contract.'],
+          },
+          usage,
+        };
+      },
+      async repairTests() {
+        repairCalls += 1;
+        return {
+          output: {
+            specSource: `import { test } from '@playwright/test';\ntest('still failing ${repairCalls}', async () => {});`,
+          },
+          usage,
+        };
+      },
+    };
+    const executions: string[] = [];
+
+    registerChangeAnalysisWorkflow(config, {
+      sourceContextBuilder: async () => sourceContext,
+      aiGenerator: generator,
+      testExecutor: async (specSource) => {
+        executions.push(specSource);
+        return {
+          passed: false,
+          failed: true,
+          duration: 10,
+          results: [
+            {
+              title: 'still failing',
+              status: 'failed',
+              error: 'Expected 200 received 404',
+            },
+          ],
+        };
+      },
+    });
+    const runId = await createRun('change-analysis');
+
+    await executeRun(db, runId);
+
+    const steps = await db.query.workflowStepsTable.findMany({
+      where: eq(workflowStepsTable.runId, runId),
+    });
+    const repairOutput = steps.find((step) => step.stepName === 'repairTests')?.output as
+      { stopReason?: string; attempts?: Array<{ attempt?: number }> } | undefined;
+    expect(repairOutput?.stopReason).toBe('max_attempts_reached');
+    expect(repairOutput?.attempts?.map((attempt) => attempt.attempt)).toContain(5);
+    expect(steps.find((step) => step.stepName === 'finaliseReport')?.output).toMatchObject({
+      passed: false,
+      failed: true,
+      repaired: false,
+      failedCount: 1,
+    });
+    expect(steps.find((step) => step.stepName === 'persistAcceptedTests')?.output).toMatchObject({
+      persisted: false,
+    });
+    expect(repairCalls).toBe(5);
+    expect(executions).toHaveLength(6);
   });
 });

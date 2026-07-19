@@ -25,6 +25,8 @@ const sourceContext: SourceContext = {
   diffStat: '',
   changedFiles: ['src/routes.ts'],
   fileContents: [],
+  contractFiles: [],
+  existingGeneratedTests: [],
 };
 
 function mockClient(content: unknown) {
@@ -55,7 +57,7 @@ describe('createOpenAiGenerator', () => {
     expect(result.output.summary).toBe('Changed routes.ts');
     expect(result.usage.promptTokens).toBe(100);
     expect(result.usage.completionTokens).toBe(50);
-    expect(result.usage.costUsd).toBeCloseTo(100 / 1e6 * 5 + 50 / 1e6 * 25, 6);
+    expect(result.usage.costUsd).toBeCloseTo((100 / 1e6) * 5 + (50 / 1e6) * 25, 6);
     expect(result.usage.model).toBe('gpt-4o-mini');
   });
 

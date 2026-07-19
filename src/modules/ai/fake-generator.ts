@@ -1,7 +1,12 @@
 import type { AppConfig } from '../../config/index.js';
 import type { SourceContext } from '../scm/source-context.js';
 import type { AiCallResult, AiGenerator } from './generator.js';
-import type { ChangeAnalysis, GeneratedSpec, TestPlan } from './schemas.js';
+import type {
+  ChangeAnalysis,
+  GeneratedSpec,
+  TestFailureClassification,
+  TestPlan,
+} from './schemas.js';
 
 function classifyKind(path: string): ChangeAnalysis['behaviouralChanges'][number]['kind'] {
   if (path.includes('/auth/') || path.includes('jwt') || path.includes('password')) {
@@ -42,6 +47,16 @@ test(${testTitle(test.title, index)}, async ({ page }) => {
 
   return `import { expect, test } from '@playwright/test';
 ${tests}
+`;
+}
+
+function repairedSpecSource(): string {
+  return `import { expect, test } from '@playwright/test';
+
+test('repaired generated smoke test', async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.ok()).toBe(true);
+});
 `;
 }
 
@@ -101,6 +116,22 @@ export function createFakeGenerator(config: AppConfig): AiGenerator {
       plan: TestPlan,
     ): Promise<AiCallResult<GeneratedSpec>> {
       return { output: { specSource: generatedSpecSource(plan) }, usage: usage(model) };
+    },
+
+    async classifyTestFailure(): Promise<AiCallResult<TestFailureClassification>> {
+      return {
+        output: {
+          category: 'generated_test_error',
+          repairRecommended: true,
+          summary: 'Fake generator treats failed executions as repairable generated-test errors.',
+          evidence: ['The fake provider is deterministic for local workflow tests.'],
+        },
+        usage: usage(model),
+      };
+    },
+
+    async repairTests(): Promise<AiCallResult<GeneratedSpec>> {
+      return { output: { specSource: repairedSpecSource() }, usage: usage(model) };
     },
   };
 }

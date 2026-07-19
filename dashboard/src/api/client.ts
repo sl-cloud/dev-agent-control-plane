@@ -34,14 +34,12 @@ export interface AiOperationSummary {
   model: string;
   promptTokens: number | null;
   completionTokens: number | null;
-  costUsd: string | null;
   createdAt: string;
 }
 
 export interface RunDetail extends RunSummary {
   steps: WorkflowStepSummary[];
   aiOperations: AiOperationSummary[];
-  totalCostUsd: string;
 }
 
 export interface OverviewResponse {

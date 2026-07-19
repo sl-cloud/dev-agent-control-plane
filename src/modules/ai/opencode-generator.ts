@@ -8,12 +8,16 @@ import { calculateCostUsd } from './cost.js';
 import { changeAnalysisPrompt } from './prompts/change-analysis.v1.js';
 import { testPlanPrompt } from './prompts/test-plan.v1.js';
 import { testGenerationPrompt } from './prompts/test-generation.v1.js';
+import { testFailureClassificationPrompt } from './prompts/test-failure-classification.v1.js';
+import { testRepairPrompt } from './prompts/test-repair.v1.js';
 import {
   ChangeAnalysisSchema,
   TestPlanSchema,
   GeneratedSpecSchema,
+  TestFailureClassificationSchema,
   type ChangeAnalysis,
   type GeneratedSpec,
+  type TestFailureClassification,
   type TestPlan,
 } from './schemas.js';
 
@@ -87,15 +91,20 @@ async function runOpencode(
   execFileImpl: ExecFileFn,
   prompt: string,
 ): Promise<{ text: string; usage: OpencodeEvent['usage'] | undefined; model: string | undefined }> {
-  const { stdout } = await execFileAsync(execFileImpl, 'opencode', ['run', '--format', 'json', prompt], {
-    timeout: EXECUTION_TIMEOUT_MS,
-    maxBuffer: 2_000_000,
-    env: {
-      HOME: process.env.HOME,
-      PATH: process.env.PATH,
-      XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  const { stdout } = await execFileAsync(
+    execFileImpl,
+    'opencode',
+    ['run', '--format', 'json', prompt],
+    {
+      timeout: EXECUTION_TIMEOUT_MS,
+      maxBuffer: 2_000_000,
+      env: {
+        HOME: process.env.HOME,
+        PATH: process.env.PATH,
+        XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+      },
     },
-  });
+  );
   const event = parseFinalAssistantContent(stdout);
   return { text: event.content ?? '', usage: event.usage, model: event.model };
 }
@@ -144,10 +153,8 @@ export function createOpencodeGenerator(
 
   return {
     async analyseChanges(context: SourceContext): Promise<AiCallResult<ChangeAnalysis>> {
-      return call(
-        changeAnalysisPrompt.system,
-        changeAnalysisPrompt.render(context),
-        (raw) => ChangeAnalysisSchema.parse(raw),
+      return call(changeAnalysisPrompt.system, changeAnalysisPrompt.render(context), (raw) =>
+        ChangeAnalysisSchema.parse(raw),
       );
     },
 
@@ -155,10 +162,8 @@ export function createOpencodeGenerator(
       context: SourceContext,
       analysis: ChangeAnalysis,
     ): Promise<AiCallResult<TestPlan>> {
-      return call(
-        testPlanPrompt.system,
-        testPlanPrompt.render(context, analysis),
-        (raw) => TestPlanSchema.parse(raw),
+      return call(testPlanPrompt.system, testPlanPrompt.render(context, analysis), (raw) =>
+        TestPlanSchema.parse(raw),
       );
     },
 
@@ -171,6 +176,20 @@ export function createOpencodeGenerator(
         testGenerationPrompt.system,
         testGenerationPrompt.render(context, analysis, plan),
         (raw) => GeneratedSpecSchema.parse(raw),
+      );
+    },
+
+    async classifyTestFailure(params): Promise<AiCallResult<TestFailureClassification>> {
+      return call(
+        testFailureClassificationPrompt.system,
+        testFailureClassificationPrompt.render(params),
+        (raw) => TestFailureClassificationSchema.parse(raw),
+      );
+    },
+
+    async repairTests(params): Promise<AiCallResult<GeneratedSpec>> {
+      return call(testRepairPrompt.system, testRepairPrompt.render(params), (raw) =>
+        GeneratedSpecSchema.parse(raw),
       );
     },
   };

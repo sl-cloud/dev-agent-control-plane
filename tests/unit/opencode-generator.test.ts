@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createOpencodeGenerator, extractFinalJsonBlock } from '../../src/modules/ai/opencode-generator.js';
+import {
+  createOpencodeGenerator,
+  extractFinalJsonBlock,
+} from '../../src/modules/ai/opencode-generator.js';
 import type { AppConfig } from '../../src/config/index.js';
 import type { SourceContext } from '../../src/modules/scm/source-context.js';
 
@@ -22,11 +25,14 @@ const sourceContext: SourceContext = {
   diffStat: '',
   changedFiles: [],
   fileContents: [],
+  contractFiles: [],
+  existingGeneratedTests: [],
 };
 
 describe('extractFinalJsonBlock', () => {
   it('extracts a fenced json block from event-stream text', () => {
-    const text = 'Here is the result:\n```json\n{"summary":"ok","behaviouralChanges":[],"securitySensitive":false}\n```\nDone.';
+    const text =
+      'Here is the result:\n```json\n{"summary":"ok","behaviouralChanges":[],"securitySensitive":false}\n```\nDone.';
     const parsed = extractFinalJsonBlock(text);
     expect(parsed).toEqual({ summary: 'ok', behaviouralChanges: [], securitySensitive: false });
   });

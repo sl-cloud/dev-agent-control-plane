@@ -1,6 +1,8 @@
-# Optional override that attaches this stack's api service to a
+# Optional override that attaches this stack's api and worker services to a
 # pre-created external network so the gateway repo's deploy webhook (or a
-# developer testing cross-repo locally) can reach `cp-api` by service name.
+# developer testing cross-repo locally) can reach `cp-api` by service name,
+# and so the worker's generated Playwright checks can reach the gateway by
+# its service name in turn.
 #
 # Usage:
 #   docker network create portfolio-dev   # once
@@ -9,6 +11,11 @@ name: dev-agent-control-plane
 
 services:
   api:
+    networks:
+      - default
+      - portfolio-dev
+
+  worker:
     networks:
       - default
       - portfolio-dev

@@ -1,6 +1,12 @@
 import type { AppConfig } from '../../config/index.js';
+import type { PlaywrightExecutionResult } from '../execution/playwright-executor.js';
 import type { SourceContext } from '../scm/source-context.js';
-import type { ChangeAnalysis, GeneratedSpec, TestPlan } from './schemas.js';
+import type {
+  ChangeAnalysis,
+  GeneratedSpec,
+  TestFailureClassification,
+  TestPlan,
+} from './schemas.js';
 import { createFakeGenerator } from './fake-generator.js';
 import { createOpenAiGenerator } from './openai-generator.js';
 import { createOpencodeGenerator } from './opencode-generator.js';
@@ -25,6 +31,23 @@ export interface AiGenerator {
     analysis: ChangeAnalysis,
     plan: TestPlan,
   ): Promise<AiCallResult<GeneratedSpec>>;
+  classifyTestFailure(params: {
+    context: SourceContext;
+    analysis: ChangeAnalysis;
+    plan: TestPlan;
+    spec: GeneratedSpec;
+    execution: PlaywrightExecutionResult;
+    attempt: number;
+  }): Promise<AiCallResult<TestFailureClassification>>;
+  repairTests(params: {
+    context: SourceContext;
+    analysis: ChangeAnalysis;
+    plan: TestPlan;
+    spec: GeneratedSpec;
+    execution: PlaywrightExecutionResult;
+    classification: TestFailureClassification;
+    attempt: number;
+  }): Promise<AiCallResult<GeneratedSpec>>;
 }
 
 export function createAiGenerator(config: AppConfig): AiGenerator {

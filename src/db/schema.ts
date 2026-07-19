@@ -118,6 +118,22 @@ export const aiOperationsTable = pgTable('ai_operations', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const acceptedGeneratedTestsTable = pgTable('accepted_generated_tests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id')
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: 'cascade' }),
+  runId: uuid('run_id')
+    .notNull()
+    .references(() => agentRunsTable.id, { onDelete: 'cascade' }),
+  commitSha: text('commit_sha'),
+  branch: text('branch'),
+  specSource: text('spec_source').notNull(),
+  passedCount: integer('passed_count').notNull(),
+  duration: integer('duration').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Project = typeof projectsTable.$inferSelect;
 export type NewProject = typeof projectsTable.$inferInsert;
 export type WebhookEvent = typeof webhookEventsTable.$inferSelect;
@@ -130,6 +146,8 @@ export type WorkflowStep = typeof workflowStepsTable.$inferSelect;
 export type NewWorkflowStep = typeof workflowStepsTable.$inferInsert;
 export type AiOperation = typeof aiOperationsTable.$inferSelect;
 export type NewAiOperation = typeof aiOperationsTable.$inferInsert;
+export type AcceptedGeneratedTest = typeof acceptedGeneratedTestsTable.$inferSelect;
+export type NewAcceptedGeneratedTest = typeof acceptedGeneratedTestsTable.$inferInsert;
 
 export const schema = {
   projectsTable,
@@ -138,4 +156,5 @@ export const schema = {
   agentRunsTable,
   workflowStepsTable,
   aiOperationsTable,
+  acceptedGeneratedTestsTable,
 };

@@ -7,6 +7,8 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().url().or(z.string().startsWith('postgres')),
   PLAYWRIGHT_TARGET_URL: z.string().url(),
+  PLAYWRIGHT_BASIC_AUTH_USERNAME: z.string().min(1).optional(),
+  PLAYWRIGHT_BASIC_AUTH_PASSWORD: z.string().min(1).optional(),
 
   ADMIN_API_TOKEN: z.string().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
 

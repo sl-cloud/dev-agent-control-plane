@@ -1,4 +1,4 @@
-.PHONY: up up-shared down logs test test-unit test-integration reset migrate lint format typecheck
+.PHONY: up up-shared down logs test test-unit test-integration reset migrate lint format typecheck verify-generated-test-contract
 
 up:
 	docker compose up -d --wait
@@ -20,6 +20,9 @@ test-unit:
 
 test-integration:
 	docker compose exec api npm run test:integration
+
+verify-generated-test-contract:
+	docker compose exec api npm run verify:generated-test-contract
 
 migrate:
 	docker compose exec api npm run migrate

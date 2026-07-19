@@ -18,6 +18,7 @@ export const changeAnalysisPrompt = {
         diff: context.diff,
         changedFiles: context.changedFiles,
         fileContents: context.fileContents,
+        contractFiles: context.contractFiles,
       },
       null,
       2,

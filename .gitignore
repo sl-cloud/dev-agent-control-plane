@@ -9,11 +9,3 @@ dashboard/node_modules/
 dashboard/dist/
 
 .worktrees/
-
-# Agent tooling lives one level up in the portfolio/ workspace, not in this repo.
-.claude/
-.agents/
-CLAUDE.md
-AGENTS.md
-skills-lock.json
-obsidian-vault/

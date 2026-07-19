@@ -120,6 +120,75 @@ body {
   font-size: 1.1rem;
 }
 
+.panel h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.summary-grid div {
+  padding: 0.75rem;
+  border: 1px solid #8882;
+  border-radius: 0.4rem;
+  background: #8881;
+}
+
+.summary-grid dt {
+  font-size: 0.75rem;
+  opacity: 0.65;
+}
+
+.summary-grid dd {
+  margin: 0.2rem 0 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.compact-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.compact-list li {
+  padding: 0.2rem 0;
+}
+
+.compact-list.columns {
+  columns: 2;
+}
+
+.raw-json {
+  margin-top: 0.9rem;
+}
+
+.raw-json summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.raw-json textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid #8882;
+  border-radius: 0.35rem;
+  background: #8881;
+  color: inherit;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 .step-list {
   list-style: none;
   padding: 0;

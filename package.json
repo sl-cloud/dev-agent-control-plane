@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "verify:generated-test-contract": "vitest run tests/unit/source-context-contract.test.ts tests/unit/spec-validator.test.ts tests/integration/playwright-executor.test.ts",
     "test:watch": "vitest",
     "migrate": "tsx src/db/migrate.ts",
     "migrate:generate": "drizzle-kit generate",

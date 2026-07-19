@@ -53,7 +53,11 @@ interface JsonReporterSpec {
 
 interface JsonReporterTest {
   status?: string;
-  results?: Array<{ status?: string; error?: { message?: string; stack?: string } }>;
+  results?: Array<{
+    status?: string;
+    error?: { message?: string; stack?: string };
+    errors?: Array<{ message?: string; stack?: string }>;
+  }>;
 }
 
 function execFileCaptured(file: string, args: string[], options: Parameters<typeof execFile>[2]) {
@@ -75,9 +79,28 @@ function execFileCaptured(file: string, args: string[], options: Parameters<type
 }
 
 function firstError(test: JsonReporterTest): string | undefined {
-  const failedResult = test.results?.find((result) => result.error);
-  const message = failedResult?.error?.message ?? failedResult?.error?.stack;
+  const failedResult = test.results?.find(
+    (result) => result.error || result.errors?.length || result.status === 'failed',
+  );
+  const firstStructuredError = failedResult?.errors?.[0];
+  const message =
+    failedResult?.error?.message ??
+    failedResult?.error?.stack ??
+    firstStructuredError?.message ??
+    firstStructuredError?.stack;
   return message ? message.replace(ANSI_PATTERN, '').slice(0, 2000) : undefined;
+}
+
+function normaliseReporterStatus(spec: JsonReporterSpec, test: JsonReporterTest | undefined) {
+  const resultStatus = test?.results?.at(-1)?.status;
+  const rawStatus = resultStatus ?? test?.status ?? (spec.ok ? 'passed' : 'failed');
+  if (rawStatus === 'passed' || rawStatus === 'expected') {
+    return 'passed';
+  }
+  if (rawStatus === 'skipped') {
+    return 'skipped';
+  }
+  return 'failed';
 }
 
 function collectResults(suites: JsonReporterSuite[] | undefined): PlaywrightTestResult[] {
@@ -86,8 +109,7 @@ function collectResults(suites: JsonReporterSuite[] | undefined): PlaywrightTest
     results.push(...collectResults(suite.suites));
     for (const spec of suite.specs ?? []) {
       const test = spec.tests?.[0];
-      const rawStatus = test?.status ?? (spec.ok ? 'passed' : 'failed');
-      const status = rawStatus === 'passed' ? 'passed' : 'failed';
+      const status = normaliseReporterStatus(spec, test);
       const result: PlaywrightTestResult = { title: spec.title ?? 'untitled test', status };
       const error = test ? firstError(test) : undefined;
       if (error) {
@@ -102,7 +124,7 @@ function collectResults(suites: JsonReporterSuite[] | undefined): PlaywrightTest
 function parseReporter(stdout: string): PlaywrightExecutionResult | null {
   const parsed = JSON.parse(stdout) as JsonReporterResult;
   const results = collectResults(parsed.suites);
-  const failed = results.some((result) => result.status !== 'passed');
+  const failed = results.some((result) => result.status === 'failed');
   return {
     passed: !failed,
     failed,
@@ -114,25 +136,82 @@ function parseReporter(stdout: string): PlaywrightExecutionResult | null {
 function configSource(): string {
   return `import { defineConfig } from '@playwright/test';
 
+const authorization = process.env.PLAYWRIGHT_DEFAULT_AUTHORIZATION;
+
 export default defineConfig({
   reporter: 'json',
   timeout: 30_000,
   use: {
     baseURL: process.env.PLAYWRIGHT_TARGET_URL,
+    extraHTTPHeaders: authorization ? { authorization } : {},
   },
 });
 `;
 }
 
+function harnessSource(): string {
+  return `import { request as playwrightRequest, test as base } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
+
+export { expect } from '@playwright/test';
+export type { APIRequestContext, APIResponse, Page } from '@playwright/test';
+
+export const request = playwrightRequest;
+
+export const test = base.extend<{ request: APIRequestContext }>({
+  request: async ({}, use) => {
+    const authorization = process.env.PLAYWRIGHT_DEFAULT_AUTHORIZATION;
+    const request = await playwrightRequest.newContext({
+      baseURL: process.env.PLAYWRIGHT_TARGET_URL,
+      extraHTTPHeaders: authorization ? { authorization } : {},
+    });
+    await use(request);
+    await request.dispose();
+  },
+});
+`;
+}
+
+function executableSpecSource(specSource: string): string {
+  return specSource.replace(/from ['"]@playwright\/test['"]/g, "from './harness'");
+}
+
+function defaultAuthorization(
+  config: Pick<AppConfig, 'PLAYWRIGHT_BASIC_AUTH_USERNAME' | 'PLAYWRIGHT_BASIC_AUTH_PASSWORD'>,
+): string | undefined {
+  if (!config.PLAYWRIGHT_BASIC_AUTH_USERNAME || !config.PLAYWRIGHT_BASIC_AUTH_PASSWORD) {
+    return undefined;
+  }
+  return `Basic ${Buffer.from(
+    `${config.PLAYWRIGHT_BASIC_AUTH_USERNAME}:${config.PLAYWRIGHT_BASIC_AUTH_PASSWORD}`,
+  ).toString('base64')}`;
+}
+
 export async function executePlaywrightSpec(
-  config: Pick<AppConfig, 'PLAYWRIGHT_TARGET_URL'>,
+  config: Pick<
+    AppConfig,
+    'PLAYWRIGHT_TARGET_URL' | 'PLAYWRIGHT_BASIC_AUTH_USERNAME' | 'PLAYWRIGHT_BASIC_AUTH_PASSWORD'
+  >,
   specSource: string,
 ): Promise<PlaywrightExecutionResult> {
   const dir = await mkdtemp(join(tmpdir(), 'cp-playwright-'));
   try {
     await symlink(nodeModulesPath, join(dir, 'node_modules'), 'dir');
-    await writeFile(join(dir, 'generated.spec.ts'), specSource, 'utf8');
+    await writeFile(join(dir, 'generated.spec.ts'), executableSpecSource(specSource), 'utf8');
+    await writeFile(join(dir, 'harness.ts'), harnessSource(), 'utf8');
     await writeFile(join(dir, 'playwright.config.ts'), configSource(), 'utf8');
+
+    const env: NodeJS.ProcessEnv = {
+      HOME: dir,
+      PATH: process.env.PATH,
+      PLAYWRIGHT_TARGET_URL: config.PLAYWRIGHT_TARGET_URL,
+      PLAYWRIGHT_BROWSERS_PATH: browserPath,
+      CI: '1',
+    };
+    const authorization = defaultAuthorization(config);
+    if (authorization) {
+      env.PLAYWRIGHT_DEFAULT_AUTHORIZATION = authorization;
+    }
 
     const result = await execFileCaptured(
       process.execPath,
@@ -141,13 +220,7 @@ export async function executePlaywrightSpec(
         cwd: dir,
         timeout: EXECUTION_TIMEOUT_MS,
         maxBuffer: 2_000_000,
-        env: {
-          HOME: dir,
-          PATH: process.env.PATH,
-          PLAYWRIGHT_TARGET_URL: config.PLAYWRIGHT_TARGET_URL,
-          PLAYWRIGHT_BROWSERS_PATH: browserPath,
-          CI: '1',
-        },
+        env,
       },
     );
 

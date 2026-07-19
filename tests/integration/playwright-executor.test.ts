@@ -6,7 +6,16 @@ let server: Server;
 let targetUrl: string;
 
 beforeAll(async () => {
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
+    if (
+      req.url === '/auth-required' &&
+      req.headers.authorization !== 'Basic ZG9jczpwYXNzd29yZA=='
+    ) {
+      res.statusCode = 401;
+      res.end('unauthorized');
+      return;
+    }
+
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.end(
       '<!doctype html><html><head><title>Executor fixture</title></head><body><h1>Ready</h1></body></html>',
@@ -27,6 +36,25 @@ afterAll(async () => {
 });
 
 describe('executePlaywrightSpec', () => {
+  it('passes configured Basic Auth as a default request header', async () => {
+    const output = await executePlaywrightSpec(
+      {
+        PLAYWRIGHT_TARGET_URL: targetUrl,
+        PLAYWRIGHT_BASIC_AUTH_USERNAME: 'docs',
+        PLAYWRIGHT_BASIC_AUTH_PASSWORD: 'password',
+      },
+      `import { expect, test } from '@playwright/test';
+
+test('uses harness supplied basic auth', async ({ request }) => {
+  const response = await request.get('/auth-required');
+  expect(response.status()).toBe(200);
+});
+`,
+    );
+
+    expect(output).toMatchObject({ passed: true, failed: false });
+  }, 30_000);
+
   it('records failing assertions without throwing', async () => {
     const output = await executePlaywrightSpec(
       { PLAYWRIGHT_TARGET_URL: targetUrl },
@@ -44,5 +72,31 @@ test('reports a failed browser assertion', async ({ page }) => {
       expect.objectContaining({ title: 'reports a failed browser assertion', status: 'failed' }),
     ]);
     expect(output.results[0]?.error).toContain('Not ready');
+  }, 30_000);
+
+  it('does not treat skipped tests as failures', async () => {
+    const output = await executePlaywrightSpec(
+      { PLAYWRIGHT_TARGET_URL: targetUrl },
+      `import { expect, test } from '@playwright/test';
+
+test('runs a passing assertion', async ({ request }) => {
+  const response = await request.get('/');
+  expect(response.status()).toBe(200);
+});
+
+test.skip('documents an intentionally skipped assertion', async () => {
+  expect(false).toBe(true);
+});
+`,
+    );
+
+    expect(output).toMatchObject({ passed: true, failed: false });
+    expect(output.results).toEqual([
+      expect.objectContaining({ title: 'runs a passing assertion', status: 'passed' }),
+      expect.objectContaining({
+        title: 'documents an intentionally skipped assertion',
+        status: 'skipped',
+      }),
+    ]);
   }, 30_000);
 });

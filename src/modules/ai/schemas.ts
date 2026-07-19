@@ -54,9 +54,24 @@ export const GeneratedSpecSchema = z
   })
   .strict();
 
+export const TestFailureClassificationSchema = z
+  .object({
+    category: z.enum([
+      'environment_setup',
+      'generated_test_error',
+      'likely_app_regression',
+      'unknown',
+    ]),
+    repairRecommended: z.boolean(),
+    summary: z.string().max(2000),
+    evidence: z.array(z.string().max(500)).max(8),
+  })
+  .strict();
+
 export type ChangeAnalysis = z.infer<typeof ChangeAnalysisSchema>;
 export type TestPlan = z.infer<typeof TestPlanSchema>;
 export type GeneratedSpec = z.infer<typeof GeneratedSpecSchema>;
+export type TestFailureClassification = z.infer<typeof TestFailureClassificationSchema>;
 
 export const CHANGE_ANALYSIS_JSON_SCHEMA = {
   type: 'object',
@@ -134,5 +149,24 @@ export const GENERATED_SPEC_JSON_SCHEMA = {
   required: ['specSource'],
   properties: {
     specSource: { type: 'string', maxLength: 20_000 },
+  },
+} as const;
+
+export const TEST_FAILURE_CLASSIFICATION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['category', 'repairRecommended', 'summary', 'evidence'],
+  properties: {
+    category: {
+      type: 'string',
+      enum: ['environment_setup', 'generated_test_error', 'likely_app_regression', 'unknown'],
+    },
+    repairRecommended: { type: 'boolean' },
+    summary: { type: 'string', maxLength: 2000 },
+    evidence: {
+      type: 'array',
+      maxItems: 8,
+      items: { type: 'string', maxLength: 500 },
+    },
   },
 } as const;

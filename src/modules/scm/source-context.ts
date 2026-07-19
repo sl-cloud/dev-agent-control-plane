@@ -3,14 +3,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/index.js';
-import { webhookEventsTable, type AgentRun } from '../../db/schema.js';
+import { acceptedGeneratedTestsTable, webhookEventsTable, type AgentRun } from '../../db/schema.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_BYTES = 80_000;
 const MAX_FILE_BYTES = 20_000;
-const MAX_FILE_COUNT = 12;
+const MAX_CHANGED_FILE_COUNT = 12;
+const MAX_CONTRACT_FILE_COUNT = 24;
+const MAX_EXISTING_GENERATED_TESTS = 5;
 
 export interface SourceContext {
   projectSlug: string;
@@ -25,6 +27,15 @@ export interface SourceContext {
   diff: string;
   changedFiles: string[];
   fileContents: Array<{ path: string; content: string }>;
+  contractFiles: Array<{ path: string; content: string }>;
+  existingGeneratedTests: Array<{
+    runId: string;
+    commitSha: string | null;
+    branch: string | null;
+    specSource: string;
+    passedCount: number;
+    duration: number;
+  }>;
 }
 
 interface DeploymentPayload {
@@ -110,11 +121,65 @@ function shouldReadFile(path: string): boolean {
   );
 }
 
+function moduleName(path: string): string | undefined {
+  return path.match(/^src\/modules\/([^/]+)\//)?.[1];
+}
+
+export function buildContractCandidatePaths(allFiles: string[], changedFiles: string[]): string[] {
+  const all = new Set(allFiles);
+  const candidates = new Set<string>();
+  const changedModules = new Set(changedFiles.map(moduleName).filter(Boolean) as string[]);
+
+  for (const path of [
+    'src/app.ts',
+    'src/server.ts',
+    'src/plugins/auth.ts',
+    'src/plugins/docs.ts',
+    'src/plugins/error-handler.ts',
+  ]) {
+    if (all.has(path)) candidates.add(path);
+  }
+
+  for (const path of allFiles) {
+    if (/src\/modules\/[^/]+\/(routes|schemas)\.(ts|tsx|js|jsx)$/.test(path)) {
+      candidates.add(path);
+    }
+  }
+
+  for (const name of changedModules) {
+    for (const leaf of ['routes.ts', 'schemas.ts', 'service.ts', 'policies.ts']) {
+      const path = `src/modules/${name}/${leaf}`;
+      if (all.has(path)) candidates.add(path);
+    }
+  }
+
+  return [...candidates].filter(shouldReadFile).slice(0, MAX_CONTRACT_FILE_COUNT);
+}
+
+async function readFilesAtCommit(
+  cwd: string,
+  commitSha: string,
+  paths: string[],
+): Promise<Array<{ path: string; content: string }>> {
+  const files: Array<{ path: string; content: string }> = [];
+  for (const path of paths) {
+    const content = await git(cwd, ['show', `${commitSha}:${path}`], MAX_FILE_BYTES + 1024).catch(
+      () => '',
+    );
+    if (content) {
+      files.push({ path, content: truncate(content, MAX_FILE_BYTES) });
+    }
+  }
+  return files;
+}
+
 async function extractGitContext(params: {
   repositoryUrl: string;
   commitSha: string;
   baseSha: string | null;
-}): Promise<Pick<SourceContext, 'diffStat' | 'diff' | 'changedFiles' | 'fileContents'>> {
+}): Promise<
+  Pick<SourceContext, 'diffStat' | 'diff' | 'changedFiles' | 'fileContents' | 'contractFiles'>
+> {
   const dir = await mkdtemp(join(tmpdir(), 'cp-scm-'));
   try {
     await git(dir, ['init', '--quiet']);
@@ -132,24 +197,33 @@ async function extractGitContext(params: {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
+    const allFilesText = await git(
+      dir,
+      ['ls-tree', '-r', '--name-only', params.commitSha],
+      160_000,
+    ).catch(() => '');
+    const allFiles = allFilesText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-    const fileContents = [];
-    for (const path of changedFiles.filter(shouldReadFile).slice(0, MAX_FILE_COUNT)) {
-      const content = await git(
-        dir,
-        ['show', `${params.commitSha}:${path}`],
-        MAX_FILE_BYTES + 1024,
-      ).catch(() => '');
-      if (content) {
-        fileContents.push({ path, content: truncate(content, MAX_FILE_BYTES) });
-      }
-    }
+    const fileContents = await readFilesAtCommit(
+      dir,
+      params.commitSha,
+      changedFiles.filter(shouldReadFile).slice(0, MAX_CHANGED_FILE_COUNT),
+    );
+    const contractFiles = await readFilesAtCommit(
+      dir,
+      params.commitSha,
+      buildContractCandidatePaths(allFiles, changedFiles),
+    );
 
     return {
       diffStat: truncate(diffStat, 8_000),
       diff: truncate(diff, MAX_DIFF_BYTES),
       changedFiles,
       fileContents,
+      contractFiles,
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -171,7 +245,12 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
   const gitContext =
     repositoryUrl && commitSha
       ? await extractGitContext({ repositoryUrl, commitSha, baseSha })
-      : { diffStat: '', diff: '', changedFiles: [], fileContents: [] };
+      : { diffStat: '', diff: '', changedFiles: [], fileContents: [], contractFiles: [] };
+  const existingGeneratedTests = await db.query.acceptedGeneratedTestsTable.findMany({
+    where: eq(acceptedGeneratedTestsTable.projectId, run.projectId),
+    orderBy: [desc(acceptedGeneratedTestsTable.createdAt)],
+    limit: MAX_EXISTING_GENERATED_TESTS,
+  });
 
   return {
     projectSlug: payload.project ?? 'unknown',
@@ -183,5 +262,13 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
     environment: payload.environment ?? null,
     ciRunUrl: payload.ciRunUrl ?? null,
     ...gitContext,
+    existingGeneratedTests: existingGeneratedTests.map((test) => ({
+      runId: test.runId,
+      commitSha: test.commitSha,
+      branch: test.branch,
+      specSource: test.specSource,
+      passedCount: test.passedCount,
+      duration: test.duration,
+    })),
   };
 }
