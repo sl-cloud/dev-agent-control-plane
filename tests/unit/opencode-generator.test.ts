@@ -26,6 +26,7 @@ const sourceContext: SourceContext = {
   changedFiles: [],
   fileContents: [],
   contractFiles: [],
+  openApiSpec: null,
   existingGeneratedTests: [],
 };
 

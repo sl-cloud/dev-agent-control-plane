@@ -71,6 +71,7 @@ function sourceContextFixture(): SourceContext {
     contractFiles: [
       { path: 'src/modules/tasks/routes.ts', content: "server.get('/api/v1/tasks/:id')" },
     ],
+    openApiSpec: null,
     existingGeneratedTests: [],
   };
 }

@@ -26,6 +26,7 @@ const sourceContext: SourceContext = {
   changedFiles: ['src/routes.ts'],
   fileContents: [],
   contractFiles: [],
+  openApiSpec: null,
   existingGeneratedTests: [],
 };
 

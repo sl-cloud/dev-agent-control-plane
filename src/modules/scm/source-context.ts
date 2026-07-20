@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { and, desc, eq } from 'drizzle-orm';
+import { getConfig, type AppConfig } from '../../config/index.js';
 import type { Db } from '../../db/index.js';
 import {
   acceptedGeneratedTestsTable,
@@ -18,6 +19,8 @@ const MAX_FILE_BYTES = 20_000;
 const MAX_CHANGED_FILE_COUNT = 12;
 const MAX_CONTRACT_FILE_COUNT = 24;
 const MAX_EXISTING_GENERATED_TESTS = 5;
+const MAX_OPENAPI_SPEC_BYTES = 60_000;
+const OPENAPI_SPEC_FETCH_TIMEOUT_MS = 5_000;
 
 export interface SourceContext {
   projectSlug: string;
@@ -33,6 +36,7 @@ export interface SourceContext {
   changedFiles: string[];
   fileContents: Array<{ path: string; content: string }>;
   contractFiles: Array<{ path: string; content: string }>;
+  openApiSpec: string | null;
   existingGeneratedTests: Array<{
     runId: string;
     commitSha: string | null;
@@ -235,6 +239,32 @@ async function extractGitContext(params: {
   }
 }
 
+export async function fetchOpenApiSpec(config: AppConfig): Promise<string | null> {
+  const url = `${config.PLAYWRIGHT_TARGET_URL.replace(/\/$/, '')}/docs/json`;
+  const headers: Record<string, string> = {};
+  if (config.PLAYWRIGHT_BASIC_AUTH_USERNAME && config.PLAYWRIGHT_BASIC_AUTH_PASSWORD) {
+    const credentials = Buffer.from(
+      `${config.PLAYWRIGHT_BASIC_AUTH_USERNAME}:${config.PLAYWRIGHT_BASIC_AUTH_PASSWORD}`,
+    ).toString('base64');
+    headers.Authorization = `Basic ${credentials}`;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAPI_SPEC_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal });
+    if (!response.ok) {
+      return null;
+    }
+    const body: unknown = await response.json();
+    return truncate(JSON.stringify(body), MAX_OPENAPI_SPEC_BYTES);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function isAncestorCommit(
   repositoryUrl: string,
   ancestorSha: string,
@@ -286,15 +316,23 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
   // successful run has recorded one yet (first-ever run for the project).
   const baseSha = project?.lastSuccessfulCommitSha || payload.baseSha || null;
 
-  const gitContext =
+  const [gitContext, openApiSpec, existingGeneratedTests] = await Promise.all([
     repositoryUrl && commitSha
-      ? await extractGitContext({ repositoryUrl, commitSha, baseSha })
-      : { diffStat: '', diff: '', changedFiles: [], fileContents: [], contractFiles: [] };
-  const existingGeneratedTests = await db.query.acceptedGeneratedTestsTable.findMany({
-    where: eq(acceptedGeneratedTestsTable.projectId, run.projectId),
-    orderBy: [desc(acceptedGeneratedTestsTable.createdAt)],
-    limit: MAX_EXISTING_GENERATED_TESTS,
-  });
+      ? extractGitContext({ repositoryUrl, commitSha, baseSha })
+      : Promise.resolve({
+          diffStat: '',
+          diff: '',
+          changedFiles: [],
+          fileContents: [],
+          contractFiles: [],
+        }),
+    fetchOpenApiSpec(getConfig()),
+    db.query.acceptedGeneratedTestsTable.findMany({
+      where: eq(acceptedGeneratedTestsTable.projectId, run.projectId),
+      orderBy: [desc(acceptedGeneratedTestsTable.createdAt)],
+      limit: MAX_EXISTING_GENERATED_TESTS,
+    }),
+  ]);
 
   return {
     projectSlug: payload.project ?? 'unknown',
@@ -306,6 +344,7 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
     environment: payload.environment ?? null,
     ciRunUrl: payload.ciRunUrl ?? null,
     ...gitContext,
+    openApiSpec,
     existingGeneratedTests: existingGeneratedTests.map((test) => ({
       runId: test.runId,
       commitSha: test.commitSha,
