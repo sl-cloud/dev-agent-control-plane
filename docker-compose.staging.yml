@@ -4,6 +4,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --wait
 name: dev-agent-control-plane
 
+x-json-logging: &json-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '5'
+
 services:
   api:
     build: !reset null
@@ -12,6 +19,7 @@ services:
     volumes: !reset []
     ports: !reset []
     restart: unless-stopped
+    <<: *json-logging
 
   worker:
     build: !reset null
@@ -19,6 +27,7 @@ services:
     command: ['node', 'dist/entrypoints/worker.js']
     volumes: !reset []
     restart: unless-stopped
+    <<: *json-logging
     # The runtime image bakes in a HEALTHCHECK that curls the api's HTTP
     # port; worker never serves HTTP, so that check can never pass. Disable
     # it here rather than in the Dockerfile, since api legitimately needs it.

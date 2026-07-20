@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CommitLink } from '../CommitLink.js';
 import { Nav } from '../Nav.js';
-import { fetchRun, type RunDetail, type WorkflowStepSummary } from '../api/client.js';
+import { fetchRun, retryRun, type RunDetail, type WorkflowStepSummary } from '../api/client.js';
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -259,6 +259,16 @@ export function RunDetailPage() {
   const runId = params.id;
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  const loadRun = useMemo(
+    () => (id: string) =>
+      fetchRun(id)
+        .then(setRun)
+        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err))),
+    [],
+  );
 
   useEffect(() => {
     if (!runId) {
@@ -266,10 +276,28 @@ export function RunDetailPage() {
     }
     setRun(null);
     setError(null);
-    fetchRun(runId)
-      .then(setRun)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
-  }, [runId]);
+    loadRun(runId);
+  }, [runId, loadRun]);
+
+  async function handleRetry() {
+    if (!runId) {
+      return;
+    }
+    const adminToken = window.prompt('Admin token');
+    if (!adminToken) {
+      return;
+    }
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await retryRun(runId, adminToken);
+      await loadRun(runId);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const analysis = useMemo(() => (run ? findStep(run, 'analyseChanges')?.output : null), [run]);
   const plan = useMemo(() => (run ? findStep(run, 'planTests')?.output : null), [run]);
@@ -316,7 +344,15 @@ export function RunDetailPage() {
                 {run.projectSlug} / {run.workflowName} / {run.branch ?? '-'}
               </p>
             </div>
-            <span className={`status status-${run.status}`}>{run.status}</span>
+            <div>
+              <span className={`status status-${run.status}`}>{run.status}</span>
+              {run.status === 'failed' && (
+                <button type="button" onClick={handleRetry} disabled={retrying}>
+                  {retrying ? 'Retrying...' : 'Retry'}
+                </button>
+              )}
+              {retryError && <p className="error">{retryError}</p>}
+            </div>
           </div>
 
           <section className="panel">

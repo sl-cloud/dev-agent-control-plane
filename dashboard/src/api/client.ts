@@ -87,3 +87,13 @@ export function fetchRuns(params: { project?: string; page?: number } = {}): Pro
 export function fetchRun(id: string): Promise<RunDetail> {
   return getJson<RunDetail>(`/api/v1/public/runs/${id}`);
 }
+
+export async function retryRun(id: string, adminToken: string): Promise<void> {
+  const res = await fetch(`/api/v1/admin/runs/${id}/retry`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`retry request failed: ${res.status}`);
+  }
+}

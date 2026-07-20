@@ -1,6 +1,9 @@
 import { and, asc, eq } from 'drizzle-orm';
+import pino from 'pino';
 import type { Db } from '../../db/index.js';
 import { agentRunsTable, workflowStepsTable, type AgentRun } from '../../db/schema.js';
+
+const logger = pino({ name: 'workflow-runner' });
 
 export interface WorkflowStepContext {
   run: AgentRun;
@@ -130,6 +133,10 @@ export async function executeRun(db: Db, runId: string): Promise<void> {
           .where(eq(workflowStepsTable.id, stepRow.id));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err, runId, stepName: step.name, stepId: stepRow.id, attempt },
+          'workflow step failed',
+        );
         await db
           .update(workflowStepsTable)
           .set({ status: 'failed', finishedAt: new Date(), error: message })
@@ -146,6 +153,7 @@ export async function executeRun(db: Db, runId: string): Promise<void> {
     if (err instanceof CancelledError) {
       return;
     }
+    logger.error({ err, runId }, 'workflow run failed');
     await db
       .update(agentRunsTable)
       .set({ status: 'failed', updatedAt: new Date() })
@@ -174,6 +182,7 @@ export async function recoverInterruptedRuns(db: Db): Promise<InterruptedRunReco
   const cancelledRunIds: string[] = [];
 
   for (const run of runningRuns) {
+    logger.warn({ runId: run.id }, 'recovering run interrupted by worker restart');
     await db
       .update(workflowStepsTable)
       .set({
