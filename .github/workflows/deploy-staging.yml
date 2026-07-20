@@ -20,7 +20,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
@@ -73,6 +73,8 @@ jobs:
           PLAYWRIGHT_TARGET_URL: ${{ vars.PLAYWRIGHT_TARGET_URL }}
           PLAYWRIGHT_BASIC_AUTH_USERNAME: ${{ secrets.PLAYWRIGHT_BASIC_AUTH_USERNAME }}
           PLAYWRIGHT_BASIC_AUTH_PASSWORD: ${{ secrets.PLAYWRIGHT_BASIC_AUTH_PASSWORD }}
+          TEST_ADMIN_EMAIL: ${{ vars.TEST_ADMIN_EMAIL }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "$PLAYWRIGHT_TARGET_URL" ]; then
@@ -89,6 +91,11 @@ jobs:
           if { [ -n "$PLAYWRIGHT_BASIC_AUTH_USERNAME" ] && [ -z "$PLAYWRIGHT_BASIC_AUTH_PASSWORD" ]; } || \
              { [ -z "$PLAYWRIGHT_BASIC_AUTH_USERNAME" ] && [ -n "$PLAYWRIGHT_BASIC_AUTH_PASSWORD" ]; }; then
             echo "::error::Set both Playwright Basic Auth secrets, or neither."
+            exit 1
+          fi
+          if { [ -n "$TEST_ADMIN_EMAIL" ] && [ -z "$TEST_ADMIN_PASSWORD" ]; } || \
+             { [ -z "$TEST_ADMIN_EMAIL" ] && [ -n "$TEST_ADMIN_PASSWORD" ]; }; then
+            echo "::error::Set both TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD, or neither."
             exit 1
           fi
 
@@ -123,6 +130,10 @@ jobs:
             if [ -n "${{ secrets.PLAYWRIGHT_BASIC_AUTH_USERNAME }}" ]; then
               update_env PLAYWRIGHT_BASIC_AUTH_USERNAME "${{ secrets.PLAYWRIGHT_BASIC_AUTH_USERNAME }}"
               update_env PLAYWRIGHT_BASIC_AUTH_PASSWORD "${{ secrets.PLAYWRIGHT_BASIC_AUTH_PASSWORD }}"
+            fi
+            if [ -n "${{ vars.TEST_ADMIN_EMAIL }}" ]; then
+              update_env TEST_ADMIN_EMAIL "${{ vars.TEST_ADMIN_EMAIL }}"
+              update_env TEST_ADMIN_PASSWORD "${{ secrets.TEST_ADMIN_PASSWORD }}"
             fi
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm migrate

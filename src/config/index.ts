@@ -9,6 +9,8 @@ const envSchema = z.object({
   PLAYWRIGHT_TARGET_URL: z.string().url(),
   PLAYWRIGHT_BASIC_AUTH_USERNAME: z.string().min(1).optional(),
   PLAYWRIGHT_BASIC_AUTH_PASSWORD: z.string().min(1).optional(),
+  TEST_ADMIN_EMAIL: z.string().email().optional(),
+  TEST_ADMIN_PASSWORD: z.string().min(1).optional(),
 
   ADMIN_API_TOKEN: z.string().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
 

@@ -141,11 +141,41 @@ const authorization = process.env.PLAYWRIGHT_DEFAULT_AUTHORIZATION;
 export default defineConfig({
   reporter: 'json',
   timeout: 30_000,
+  globalSetup: './global-setup.ts',
   use: {
     baseURL: process.env.PLAYWRIGHT_TARGET_URL,
     extraHTTPHeaders: authorization ? { authorization } : {},
   },
 });
+`;
+}
+
+function globalSetupSource(): string {
+  return `export default async function globalSetup(): Promise<void> {
+  const email = process.env.TEST_ADMIN_EMAIL;
+  const password = process.env.TEST_ADMIN_PASSWORD;
+  if (!email || !password) {
+    return;
+  }
+
+  const baseURL = process.env.PLAYWRIGHT_TARGET_URL;
+  const response = await fetch(\`\${baseURL}/api/v1/auth/login\`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      \`admin login preflight failed: POST /api/v1/auth/login returned \${response.status}\`,
+    );
+  }
+
+  const body = (await response.json()) as { accessToken?: string };
+  if (!body.accessToken) {
+    throw new Error('admin login preflight failed: response had no accessToken');
+  }
+}
 `;
 }
 
@@ -190,7 +220,11 @@ function defaultAuthorization(
 export async function executePlaywrightSpec(
   config: Pick<
     AppConfig,
-    'PLAYWRIGHT_TARGET_URL' | 'PLAYWRIGHT_BASIC_AUTH_USERNAME' | 'PLAYWRIGHT_BASIC_AUTH_PASSWORD'
+    | 'PLAYWRIGHT_TARGET_URL'
+    | 'PLAYWRIGHT_BASIC_AUTH_USERNAME'
+    | 'PLAYWRIGHT_BASIC_AUTH_PASSWORD'
+    | 'TEST_ADMIN_EMAIL'
+    | 'TEST_ADMIN_PASSWORD'
   >,
   specSource: string,
 ): Promise<PlaywrightExecutionResult> {
@@ -200,6 +234,7 @@ export async function executePlaywrightSpec(
     await writeFile(join(dir, 'generated.spec.ts'), executableSpecSource(specSource), 'utf8');
     await writeFile(join(dir, 'harness.ts'), harnessSource(), 'utf8');
     await writeFile(join(dir, 'playwright.config.ts'), configSource(), 'utf8');
+    await writeFile(join(dir, 'global-setup.ts'), globalSetupSource(), 'utf8');
 
     const env: NodeJS.ProcessEnv = {
       HOME: dir,
@@ -208,6 +243,12 @@ export async function executePlaywrightSpec(
       PLAYWRIGHT_BROWSERS_PATH: browserPath,
       CI: '1',
     };
+    if (config.TEST_ADMIN_EMAIL) {
+      env.TEST_ADMIN_EMAIL = config.TEST_ADMIN_EMAIL;
+    }
+    if (config.TEST_ADMIN_PASSWORD) {
+      env.TEST_ADMIN_PASSWORD = config.TEST_ADMIN_PASSWORD;
+    }
     const authorization = defaultAuthorization(config);
     if (authorization) {
       env.PLAYWRIGHT_DEFAULT_AUTHORIZATION = authorization;

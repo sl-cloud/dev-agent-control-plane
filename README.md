@@ -114,22 +114,24 @@ If the GHCR package is public, no registry login is needed on the VPS.
 
 Set these in the repository settings before enabling public access. Store private values as secrets, not variables.
 
-| Name                             | Kind     | Required                            | Used by              | Notes                                                                                          |
-| -------------------------------- | -------- | ----------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------- |
-| `STAGING_SSH_KEY`                | Secret   | Yes                                 | `deploy-staging.yml` | Private SSH key that can log in to the staging host.                                           |
-| `STAGING_HOST`                   | Variable | Yes                                 | `deploy-staging.yml` | Hostname or IP for SSH deploys.                                                                |
-| `STAGING_USER`                   | Variable | Yes                                 | `deploy-staging.yml` | SSH username on the staging host.                                                              |
-| `STAGING_PORT`                   | Variable | No                                  | `deploy-staging.yml` | SSH port. Defaults to `22` when unset.                                                         |
-| `STAGING_BASE_URL`               | Variable | Yes                                 | `deploy-staging.yml` | Public HTTPS origin used by the health check, for example `https://control-plane.example.com`. |
-| `PLAYWRIGHT_TARGET_URL`          | Variable | Yes                                 | `deploy-staging.yml` | Public HTTPS origin of the connected app that generated Playwright checks should test.         |
-| `AI_PROVIDER`                    | Variable | Yes                                 | `deploy-staging.yml` | `fake`, `openai`, or `deepseek` for staging.                                                   |
-| `AI_MODEL_DEFAULT`               | Variable | Yes for real providers              | `deploy-staging.yml` | Default model name passed to the worker.                                                       |
-| `AI_MODEL_CHANGE_ANALYSIS`       | Variable | No                                  | `deploy-staging.yml` | Optional model override for change analysis.                                                   |
-| `AI_MODEL_TEST_PLANNING`         | Variable | No                                  | `deploy-staging.yml` | Optional model override for test planning.                                                     |
-| `OPENAI_API_KEY`                 | Secret   | When `AI_PROVIDER=openai`           | `deploy-staging.yml` | OpenAI API key written into the VPS `.env` during deploy.                                      |
-| `DEEPSEEK_API_KEY`               | Secret   | When `AI_PROVIDER=deepseek`         | `deploy-staging.yml` | DeepSeek API key written into the VPS `.env` during deploy.                                    |
-| `PLAYWRIGHT_BASIC_AUTH_USERNAME` | Secret   | When the target requires Basic Auth | `deploy-staging.yml` | Username supplied by the Playwright harness as a default Authorization header.                 |
-| `PLAYWRIGHT_BASIC_AUTH_PASSWORD` | Secret   | When the target requires Basic Auth | `deploy-staging.yml` | Password supplied by the Playwright harness as a default Authorization header.                 |
+| Name                             | Kind     | Required                            | Used by              | Notes                                                                                           |
+| -------------------------------- | -------- | ----------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| `STAGING_SSH_KEY`                | Secret   | Yes                                 | `deploy-staging.yml` | Private SSH key that can log in to the staging host.                                            |
+| `STAGING_HOST`                   | Variable | Yes                                 | `deploy-staging.yml` | Hostname or IP for SSH deploys.                                                                 |
+| `STAGING_USER`                   | Variable | Yes                                 | `deploy-staging.yml` | SSH username on the staging host.                                                               |
+| `STAGING_PORT`                   | Variable | No                                  | `deploy-staging.yml` | SSH port. Defaults to `22` when unset.                                                          |
+| `STAGING_BASE_URL`               | Variable | Yes                                 | `deploy-staging.yml` | Public HTTPS origin used by the health check, for example `https://control-plane.example.com`.  |
+| `PLAYWRIGHT_TARGET_URL`          | Variable | Yes                                 | `deploy-staging.yml` | Public HTTPS origin of the connected app that generated Playwright checks should test.          |
+| `AI_PROVIDER`                    | Variable | Yes                                 | `deploy-staging.yml` | `fake`, `openai`, or `deepseek` for staging.                                                    |
+| `AI_MODEL_DEFAULT`               | Variable | Yes for real providers              | `deploy-staging.yml` | Default model name passed to the worker.                                                        |
+| `AI_MODEL_CHANGE_ANALYSIS`       | Variable | No                                  | `deploy-staging.yml` | Optional model override for change analysis.                                                    |
+| `AI_MODEL_TEST_PLANNING`         | Variable | No                                  | `deploy-staging.yml` | Optional model override for test planning.                                                      |
+| `OPENAI_API_KEY`                 | Secret   | When `AI_PROVIDER=openai`           | `deploy-staging.yml` | OpenAI API key written into the VPS `.env` during deploy.                                       |
+| `DEEPSEEK_API_KEY`               | Secret   | When `AI_PROVIDER=deepseek`         | `deploy-staging.yml` | DeepSeek API key written into the VPS `.env` during deploy.                                     |
+| `PLAYWRIGHT_BASIC_AUTH_USERNAME` | Secret   | When the target requires Basic Auth | `deploy-staging.yml` | Username supplied by the Playwright harness as a default Authorization header.                  |
+| `PLAYWRIGHT_BASIC_AUTH_PASSWORD` | Secret   | When the target requires Basic Auth | `deploy-staging.yml` | Password supplied by the Playwright harness as a default Authorization header.                  |
+| `TEST_ADMIN_EMAIL`               | Variable | No                                  | `deploy-staging.yml` | Email for a pre-provisioned admin account on the target app, used by the login preflight check. |
+| `TEST_ADMIN_PASSWORD`            | Secret   | No                                  | `deploy-staging.yml` | Password for that admin account.                                                                |
 
 `GITHUB_TOKEN` is supplied automatically by GitHub Actions. It is used by `ci.yml` to push GHCR images and does not need to be configured manually.
 
@@ -146,6 +148,8 @@ OPENAI_API_KEY
 PLAYWRIGHT_TARGET_URL
 PLAYWRIGHT_BASIC_AUTH_USERNAME, when the matching GitHub secret is set
 PLAYWRIGHT_BASIC_AUTH_PASSWORD, when the matching GitHub secret is set
+TEST_ADMIN_EMAIL, when the matching GitHub variable is set
+TEST_ADMIN_PASSWORD, when the matching GitHub secret is set
 ```
 
 ### Staging Host Environment
@@ -164,6 +168,8 @@ Create `~/dev-agent-control-plane/.env` from `.env.example` and set these values
 | `PLAYWRIGHT_TARGET_URL`          | Yes                          | Browser target for generated Playwright checks, usually the staging app URL.                    |
 | `PLAYWRIGHT_BASIC_AUTH_USERNAME` | When target needs Basic Auth | Supplied by the runner as a default Basic Auth header.                                          |
 | `PLAYWRIGHT_BASIC_AUTH_PASSWORD` | When target needs Basic Auth | Supplied by the runner as a default Basic Auth header.                                          |
+| `TEST_ADMIN_EMAIL`               | No                           | Pre-provisioned admin account email on the target app, checked by the login preflight.          |
+| `TEST_ADMIN_PASSWORD`            | No                           | Password for that admin account.                                                                |
 | `PROXY_HOST_PORT`                | No                           | Host loopback port for Caddy. Defaults to `8080`.                                               |
 | `AI_RUN_BUDGET_USD`              | No                           | Per-run budget guard. Defaults to `1`.                                                          |
 | `AI_INPUT_COST_PER_MTOK`         | No                           | Cost estimate for providers that do not return reliable pricing.                                |
@@ -217,6 +223,8 @@ For changes that affect generated tests, run a local deployment webhook first an
 - Repeated homepage-only smoke specs are rejected during validation. A green run must exercise behaviour beyond loading `/` multiple times.
 
 If the target app gates registration behind Basic Auth, set `PLAYWRIGHT_BASIC_AUTH_USERNAME` and `PLAYWRIGHT_BASIC_AUTH_PASSWORD` in the control-plane environment. The runner supplies them as a default Playwright `Authorization` header, so generated specs can test valid credential paths without reading or hardcoding secrets.
+
+If a pre-provisioned admin account exists on the target app, set `TEST_ADMIN_EMAIL` and `TEST_ADMIN_PASSWORD` in the control-plane environment. Before any generated spec runs, a login check against `/api/v1/auth/login` verifies that account can still authenticate and fails the run early with a clear error if it can't, rather than letting every downstream test fail individually against a broken login. Generated specs never read these values directly.
 
 ## Re-running Analysis For An Already-Deployed Commit
 
