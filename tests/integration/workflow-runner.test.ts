@@ -225,7 +225,13 @@ describe('executeRun', () => {
 
     const recovery = await recoverInterruptedRuns(db);
 
-    expect(recovery).toEqual({ requeuedRunIds: [runId], cancelledRunIds: [] });
+    // recoverInterruptedRuns scans every 'running' row in the table, not just
+    // this test's own run, so other integration test files that transiently
+    // leave a run 'running' can add entries here when suites run in
+    // parallel. Assert membership, not exact equality against the whole
+    // system's recovery result.
+    expect(recovery.requeuedRunIds).toContain(runId);
+    expect(recovery.cancelledRunIds).not.toContain(runId);
     const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
     expect(run?.status).toBe('queued');
     const step = await db.query.workflowStepsTable.findFirst({
@@ -257,7 +263,10 @@ describe('executeRun', () => {
 
     const recovery = await recoverInterruptedRuns(db);
 
-    expect(recovery).toEqual({ requeuedRunIds: [], cancelledRunIds: [runId] });
+    // See the note in the previous test: recovery scans the whole table, so
+    // assert membership rather than exact equality against every run in it.
+    expect(recovery.cancelledRunIds).toContain(runId);
+    expect(recovery.requeuedRunIds).not.toContain(runId);
     const run = await db.query.agentRunsTable.findFirst({ where: eq(agentRunsTable.id, runId) });
     expect(run?.status).toBe('cancelled');
     expect(run?.cancellationRequested).toBe(true);

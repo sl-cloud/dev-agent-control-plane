@@ -304,17 +304,23 @@ export async function buildSourceContext(db: Db, run: AgentRun): Promise<SourceC
     ),
   });
   const payload = parseDeploymentPayload(event?.payload);
-  const repositoryUrl = normaliseRepositoryUrl(payload.repository);
-  const commitSha = payload.commitSha ?? run.commitSha ?? '';
   const project = await db.query.projectsTable.findFirst({
     where: eq(projectsTable.id, run.projectId),
   });
+  // Admin-forced reruns (POST /admin/projects/:slug/rerun) have no webhook event of
+  // their own, so fall back to the project's last known repository URL.
+  const repositoryUrl =
+    normaliseRepositoryUrl(payload.repository) ?? project?.repositoryUrl ?? null;
+  const commitSha = payload.commitSha ?? run.commitSha ?? '';
   // Prefer the last commit this project's analysis actually completed
   // against over the deploy workflow's HEAD~1 guess, which is wrong
   // whenever deploys are batched, skipped, rolled back, or a merge commit
   // lands. Fall back to the webhook-supplied baseSha only when no prior
   // successful run has recorded one yet (first-ever run for the project).
-  const baseSha = project?.lastSuccessfulCommitSha || payload.baseSha || null;
+  // An admin-forced rerun's overrideBaseSha wins over both, since it exists
+  // specifically to pin a base that differs from the tracked one.
+  const baseSha =
+    run.overrideBaseSha || project?.lastSuccessfulCommitSha || payload.baseSha || null;
 
   const [gitContext, openApiSpec, existingGeneratedTests] = await Promise.all([
     repositoryUrl && commitSha

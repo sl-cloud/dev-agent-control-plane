@@ -36,6 +36,13 @@
       "when": 1784471635390,
       "tag": "0004_flaky_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784546860994,
+      "tag": "0005_bright_paladin",
+      "breakpoints": true
     }
   ]
 }

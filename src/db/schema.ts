@@ -87,6 +87,10 @@ export const agentRunsTable = pgTable('agent_runs', {
   triggerDeliveryId: text('trigger_delivery_id').notNull(),
   commitSha: text('commit_sha'),
   branch: text('branch'),
+  // Set only by admin-forced reruns (POST /admin/projects/:slug/rerun) to pin the
+  // diff base for that one run, bypassing project.lastSuccessfulCommitSha. Null for
+  // every normal webhook-triggered run.
+  overrideBaseSha: text('override_base_sha'),
   isPublicOnDashboard: boolean('is_public_on_dashboard').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
