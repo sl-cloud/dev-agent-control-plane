@@ -138,6 +138,7 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm migrate
             docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --wait api worker db proxy
+            docker image prune -af
 
       - name: Health verify
         run: |

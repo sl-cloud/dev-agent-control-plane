@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   agentRunsTable,
@@ -8,7 +8,7 @@ import {
 } from '../../db/schema.js';
 import { toProjectSummary, toRunDetail, toRunSummary } from './view-models.js';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 
 export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
   app.get('/overview', async () => {
@@ -67,7 +67,7 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
         ),
       });
       if (!project) {
-        return reply.send({ runs: [], page, pageSize: PAGE_SIZE });
+        return reply.send({ runs: [], page, pageSize: PAGE_SIZE, total: 0 });
       }
       projectFilter = project;
     }
@@ -78,15 +78,20 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
     const publicProjectIds = new Set(projects.map((p) => p.id));
     const projectById = new Map(projects.map((p) => [p.id, p]));
 
+    const runsWhere = and(
+      eq(agentRunsTable.isPublicOnDashboard, true),
+      projectFilter ? eq(agentRunsTable.projectId, projectFilter.id) : undefined,
+    );
+
     const runs = await app.db.query.agentRunsTable.findMany({
-      where: and(
-        eq(agentRunsTable.isPublicOnDashboard, true),
-        projectFilter ? eq(agentRunsTable.projectId, projectFilter.id) : undefined,
-      ),
+      where: runsWhere,
       orderBy: [desc(agentRunsTable.createdAt)],
       limit: PAGE_SIZE,
       offset,
     });
+
+    const countRows = await app.db.select({ value: count() }).from(agentRunsTable).where(runsWhere);
+    const total = countRows[0]?.value ?? 0;
 
     const visibleRuns = runs.filter((run) => publicProjectIds.has(run.projectId));
 
@@ -97,6 +102,7 @@ export async function dashboardApiRoutes(app: FastifyInstance): Promise<void> {
       }),
       page,
       pageSize: PAGE_SIZE,
+      total,
     };
   });
 }

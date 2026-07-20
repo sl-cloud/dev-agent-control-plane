@@ -10,14 +10,32 @@ export function RunsPage() {
   const page = Number(searchParams.get('page') ?? '1') || 1;
 
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setRuns(null);
     fetchRuns({ project, page })
-      .then((res) => setRuns(res.runs))
+      .then((res) => {
+        setRuns(res.runs);
+        setTotal(res.total);
+        setPageSize(res.pageSize);
+      })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, [project, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  function goToPage(nextPage: number) {
+    const next = new URLSearchParams(searchParams);
+    if (nextPage <= 1) {
+      next.delete('page');
+    } else {
+      next.set('page', String(nextPage));
+    }
+    setSearchParams(next);
+  }
 
   return (
     <div className="page">
@@ -74,6 +92,19 @@ export function RunsPage() {
             ))}
           </tbody>
         </table>
+      )}
+      {runs && total > 0 && (
+        <div className="pagination">
+          <button type="button" disabled={page <= 1} onClick={() => goToPage(page - 1)}>
+            Previous
+          </button>
+          <span>
+            Page {page} of {totalPages}
+          </span>
+          <button type="button" disabled={page >= totalPages} onClick={() => goToPage(page + 1)}>
+            Next
+          </button>
+        </div>
       )}
     </div>
   );

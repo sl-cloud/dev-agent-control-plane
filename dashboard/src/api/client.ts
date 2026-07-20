@@ -51,6 +51,7 @@ export interface RunsResponse {
   runs: RunSummary[];
   page: number;
   pageSize: number;
+  total: number;
 }
 
 export function commitUrl(repositoryUrl: string | null, commitSha: string | null): string | null {
